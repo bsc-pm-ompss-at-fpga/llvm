@@ -478,32 +478,21 @@ struct __mcxx_ptr_t {
     }
 
     if (UsesOmpif) {
-      Output << R"(
-typedef enum {
-  OMPIF_INT = 0,
-  OMPIF_DOUBLE = 1,
-  OMPIF_FLOAT = 2
-} OMPIF_Datatype;
-)";
 
-      Output << R"(
-typedef enum {
-OMPIF_COMM_WORLD
-} OMPIF_Comm;
-)";
-
-      Output << "void OMPIF_Send(const void *data, int count, OMPIF_Datatype "
-                "datatype, int destination, unsigned char tag, OMPIF_Comm "
-                "communicator, const ap_uint<8> numDeps, const unsigned long "
+      Output << "void OMPIF_Send(const void *data, unsigned int size, "
+                "int destination, unsigned char tag, "
+                "const ap_uint<8> numDeps, const unsigned long "
                 "long int deps[], " STR_OUTPORT_DECL ");\n";
       Output
-          << "void OMPIF_Recv(void *data, int count, OMPIF_Datatype datatype,"
-             " int source, unsigned char tag, OMPIF_Comm communicator, const "
+          << "void OMPIF_Recv(void *data, unsigned int size,"
+             " int source, unsigned char tag, const "
              "ap_uint<8> numDeps, const unsigned long long int "
              "deps[], " STR_OUTPORT_DECL ");\n";
-      Output << "void OMPIF_Allgather(void* data, int count, OMPIF_Datatype "
-                "datatype, unsigned char tag, OMPIF_Comm communicator, unsigned"
+      Output << "void OMPIF_Allgather(void* data, unsigned int size, "
+                "unsigned char tag, unsigned "
                 "char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
+      Output << "void OMPIF_Bcast(void* data, unsigned int size, int root, "
+                "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");";
     }
     if (CI.getFrontendOpts().OmpSsFpgaInstrumentation) {
       Output << "typedef ap_uint<105> __mcxx_instrData_t;\n"
@@ -1139,65 +1128,84 @@ OMPIF_COMM_WORLD
       Output << "}\n";
     }
     if (UsesOmpif) {
-      Output << "const int ompif_type_sizes[3] = {sizeof(int), sizeof(double), "
-                "sizeof(float)};\n";
-      Output << "void OMPIF_Send(const void *data, int count, OMPIF_Datatype "
-                "datatype, int destination, unsigned char tag, OMPIF_Comm "
-                "communicator, const ap_uint<8> numDeps, const unsigned long "
+      Output << "void OMPIF_Send(const void *data, unsigned int size, "
+                "int destination, unsigned char tag, "
+                "const ap_uint<8> numDeps, const unsigned long "
                 "long int deps[], " STR_OUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command;\n";
       Output << "  command(7,0) = 0;\n";
       Output << "  command(15,8) = tag;\n";
-      Output << "  command(23,16) = destination+1;\n";
-      Output << "  command(63, 32) = (unsigned long long int)data;\n";
+      Output << "  command(23,16) = destination;\n";
+      Output << "  command(63, 24) = (unsigned long long int)data;\n";
       Output
           << "  unsigned long long int args[2] = {command, (unsigned long long "
-             "int)count*ompif_type_sizes[(int)datatype]};\n";
+             "int)size};\n";
       Output << "  " STR_TASK_CREATE_FUN(
           "4294967299LU, 0xFF, 2, args, numDeps, deps, 0, 0") "\n";
       Output << "}\n";
       Output
-          << "void OMPIF_Recv(void *data, int count, OMPIF_Datatype datatype, "
-             "int source, unsigned char tag, OMPIF_Comm communicator, const "
+          << "void OMPIF_Recv(void *data, unsigned int size, "
+             "int source, unsigned char tag, const "
              "ap_uint<8> numDeps, const unsigned long long int "
              "deps[], " STR_OUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command;\n";
       Output << "  command(7,0) = 0;\n";
       Output << "  command(15,8) = tag;\n";
-      Output << "  command(23,16) = source+1;\n";
-      Output << "  command(63, 32) = (unsigned long long int)data;\n";
+      Output << "  command(23,16) = source;\n";
+      Output << "  command(63, 24) = (unsigned long long int)data;\n";
       Output
           << "unsigned long long int args[2] = {command, (unsigned long long "
-             "int)count*ompif_type_sizes[(int)datatype]};\n";
+             "int)size};\n";
       Output << "  " STR_TASK_CREATE_FUN(
           "4294967300LU, 0xFF, 2, args, numDeps, deps, 0, 0") "\n";
       Output << "}\n";
       Output
-          << "void OMPIF_Allgather(void *data, int count, OMPIF_Datatype "
-             "datatype, unsigned char tag, OMPIF_Comm communicator, unsigned "
+          << "void OMPIF_Allgather(void *data, unsigned int size, "
+             "unsigned char tag, unsigned "
              "char ompif_rank, " STR_SPWNINOUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command_sender, command_receiver;\n";
-      Output << "  const unsigned long long int size = (unsigned long long "
-                "int)count*ompif_type_sizes[(int)datatype];\n";
       Output << "  command_sender(7,0) = 1; //SENDALL\n";
       Output << "  command_receiver(7, 0) = 1; //RECVALL\n";
       Output << "  command_sender(15, 8) = tag; //TAG\n";
       Output << "  command_receiver(15, 8) = tag;\n";
-      Output << "  command_sender(63, 32) = (unsigned long long int)data + "
-                "(ompif_rank-1)*size;\n";
-      Output << "  command_receiver(63, 32) = (unsigned long long int)data;\n";
+      Output << "  command_receiver(63, 24) = (unsigned long long int)data;\n";
       Output << "  const unsigned long long int mcxx_args_sender[2] = "
                 "{command_sender, size};\n";
       Output << "  const unsigned long long int mcxx_args_receiver[2] = "
                 "{command_receiver, size};\n";
       Output << "  " STR_TASK_CREATE_FUN(
-          "4294967300LU, 255, 2, mcxx_args_receiver, 0, NULL, 0, NULL") "\n";
+          "4294967300LU, 255, 2, mcxx_args_receiver, 0, 0, 0, 0") "\n";
       Output << "  " STR_TASK_CREATE_FUN(
-          "4294967299LU, 255, 2, mcxx_args_sender, 0, NULL, 0, NULL") "\n";
+          "4294967299LU, 255, 2, mcxx_args_sender, 0, 0, 0, 0") "\n";
       Output << "  " STR_TASKWAIT_FUN "\n";
+      Output << "}\n";
+      Output << "void OMPIF_Bcast(void* data, unsigned int size, int root, "
+                "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ") {\n";
+      Output << "#pragma HLS inline\n";
+      Output << "  if (ompif_rank == root) {\n";
+      Output << "    ap_uint<64> command_sender;\n";
+      Output << "    command_sender(7, 0) = 1; //SENDALL\n";
+      Output << "    command_sender(15, 8) = 0; //TAG\n";
+      Output << "    command_sender(63, 24) = (unsigned long long int)data;\n";
+      Output << "    const unsigned long long int mcxx_args_sender[2] ="
+              " {command_sender, size};\n";
+      Output << "    " STR_TASK_CREATE_FUN(
+              "4294967299LU, 255, 2, mcxx_args_sender, 0, 0, 0, 0") "\n";
+      Output << "  } else {\n";
+      Output << "    ap_uint<64> command_receiver;\n";
+      Output << "    command_receiver(7, 0) = 0; //RECV\n";
+      Output << "    command_receiver(15, 8) = 0; //TAG\n";
+      Output << "    command_receiver(23, 16) = root;\n";
+      Output << "    command_receiver(63, 24) = (unsigned long long int)data;\n";
+      Output << "    const unsigned long long int mcxx_args_receiver[2] ="
+                " {command_receiver, size};\n";
+      Output << "    " STR_TASK_CREATE_FUN(
+              "4294967300LU, 255, 2, mcxx_args_receiver, 0, 0, 0, 0") "\n";
+      Output <<  "  }\n";
+      Output << STR_TASKWAIT_FUN "\n";
       Output << "}\n";
     }
 

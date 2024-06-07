@@ -679,9 +679,7 @@ public:
     }
     if (funcName == "OMPIF_Send" || funcName == "OMPIF_Recv") {
       llvm::SmallVector<Expr *, 4> arguments(callExpr->arguments());
-      arguments.reserve(callExpr->getNumArgs() + 3);
-      arguments.push_back(makeIntegerLiteral(0));
-      arguments.push_back(makeIntegerLiteral(0));
+      arguments.reserve(callExpr->getNumArgs() + 1);
       arguments.push_back(makeDeclRefExpr(OutPort));
 
       addReplacementOpStmt(callExpr,
@@ -1229,12 +1227,12 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
     auto symName = symNamed->getName();
 
     if (symName == "OMPIF_Comm_rank") {
-      UsesOmpif = true;
+      UsesOmpif = CreatesTasks = true;
       propagatePort(WrapperPort::OMPIF_RANK);
       return true;
     }
     if (symName == "OMPIF_Comm_size") {
-      UsesOmpif = true;
+      UsesOmpif = CreatesTasks = true;
       propagatePort(WrapperPort::OMPIF_SIZE);
       return true;
     }
