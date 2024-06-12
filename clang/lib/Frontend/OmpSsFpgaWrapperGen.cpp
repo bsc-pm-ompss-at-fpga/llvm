@@ -492,7 +492,7 @@ struct __mcxx_ptr_t {
                 "unsigned char tag, unsigned "
                 "char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
       Output << "void OMPIF_Bcast(void* data, unsigned int size, int root, "
-                "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");";
+                "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
     }
     if (CI.getFrontendOpts().OmpSsFpgaInstrumentation) {
       Output << "typedef ap_uint<105> __mcxx_instrData_t;\n"
