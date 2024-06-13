@@ -686,7 +686,7 @@ public:
                            makeCallToWithDifferentParams(callExpr, arguments));
       return true;
     }
-    if (funcName == "OMPIF_Allgather") {
+    if (funcName == "OMPIF_Allgather" || funcName == "OMPIF_Bcast") {
       llvm::SmallVector<Expr *, 4> arguments(callExpr->arguments());
       arguments.reserve(callExpr->getNumArgs() + 3);
       arguments.push_back(makeDeclRefExpr(OmpIfRank));
@@ -1239,7 +1239,7 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
     if (symName.startswith("OMPIF_")) {
       UsesOmpif = CreatesTasks = true;
       propagatePort(WrapperPort::OUTPORT);
-      if (symName == "OMPIF_Allgather") {
+      if (symName == "OMPIF_Allgather" || symName == "OMPIF_Bcast") {
         propagatePort(WrapperPort::OMPIF_RANK);
         propagatePort(WrapperPort::SPAWN_INPORT);
       }
