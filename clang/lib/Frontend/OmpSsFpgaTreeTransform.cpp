@@ -660,21 +660,11 @@ public:
         dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
 
     if (funcName == "OMPIF_Comm_rank") {
-      auto *operation = BinaryOperator::Create(
-          Ctx, makeDeclRefExpr(OmpIfRank),
-          UnaryOperator::Create(
-              Ctx, makeIntegerLiteral(1), UnaryOperatorKind::UO_Minus,
-              Ctx.IntTy, ExprValueKind::VK_PRValue, ExprObjectKind::OK_Ordinary,
-              SourceLocation{}, false, {}),
-          BinaryOperatorKind::BO_Add, Ctx.IntTy, callExpr->getValueKind(),
-          callExpr->getObjectKind(), SourceLocation{}, {});
-      auto *paren =
-          new (Ctx) ParenExpr(SourceLocation{}, SourceLocation{}, operation);
-      addReplacementOpStmt(callExpr, paren);
+      addReplacementOpStmt(callExpr, makeDeclRefExpr(OmpIfRank));
       return true;
     }
     if (funcName == "OMPIF_Comm_size") {
-      addReplacementOpStmt(callExpr, makeDeclRefExpr(OmpIfRank));
+      addReplacementOpStmt(callExpr, makeDeclRefExpr(OmpIfSize));
       return true;
     }
     if (funcName == "OMPIF_Send" || funcName == "OMPIF_Recv") {
