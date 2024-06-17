@@ -489,8 +489,7 @@ struct __mcxx_ptr_t {
              "ap_uint<8> numDeps, const unsigned long long int "
              "deps[], " STR_OUTPORT_DECL ");\n";
       Output << "void OMPIF_Allgather(void* data, unsigned int size, "
-                "unsigned char tag, unsigned "
-                "char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
+                "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
       Output << "void OMPIF_Bcast(void* data, unsigned int size, int root, "
                 "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
     }
@@ -1163,14 +1162,14 @@ struct __mcxx_ptr_t {
       Output << "}\n";
       Output
           << "void OMPIF_Allgather(void *data, unsigned int size, "
-             "unsigned char tag, unsigned "
-             "char ompif_rank, " STR_SPWNINOUTPORT_DECL ") {\n";
+             " unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command_sender, command_receiver;\n";
       Output << "  command_sender(7,0) = 1; //SENDALL\n";
       Output << "  command_receiver(7, 0) = 1; //RECVALL\n";
-      Output << "  command_sender(15, 8) = tag; //TAG\n";
-      Output << "  command_receiver(15, 8) = tag;\n";
+      Output << "  command_sender(15, 8) = 0; //TAG\n";
+      Output << "  command_receiver(15, 8) = 0; //TAG\n";
+      Output << "  command_sender(63, 24) = (unsigned long long int)data + ompif_rank*size;";
       Output << "  command_receiver(63, 24) = (unsigned long long int)data;\n";
       Output << "  const unsigned long long int mcxx_args_sender[2] = "
                 "{command_sender, size};\n";
