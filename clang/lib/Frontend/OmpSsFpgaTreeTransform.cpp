@@ -574,6 +574,11 @@ public:
         auto *ptrVar = makeVarDecl(
             type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
 
+        auto *valExpression = BinaryOperator::Create(
+            Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+            makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
         stmts.push_back(makeDeclStmt(ptrVar));
 
         // previously, in mercurium we used to support passing slices of an
@@ -589,12 +594,18 @@ public:
                 QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
                          0),
                 ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-            BinaryOperator::Create(
-                Ctx, flagExpression,
-                makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                BinaryOperatorKind::BO_Or, type, ExprValueKind::VK_LValue,
-                ExprObjectKind::OK_Ordinary, {}, {}),
+            valExpression,
             BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
+            ExprObjectKind::OK_Ordinary, {}, {}));
+        stmts.push_back(BinaryOperator::Create(
+            Ctx,
+            new (Ctx) ArraySubscriptExpr(
+                makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+                QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
+                         0),
+                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+            flagExpression,
+            BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
             ExprObjectKind::OK_Ordinary, {}, {}));
         ++depId;
       }
