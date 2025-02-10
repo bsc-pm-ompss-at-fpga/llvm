@@ -178,6 +178,8 @@ def OSSC_Period: Clause<"period"> {
 }
 def OSSC_Affinity: Clause<"affinity"> {
 }
+def OSSC_Data_dist: Clause<"data_dist"> {
+}
 def OSSC_CopyIn: Clause<"copy_in"> {
 }
 def OSSC_CopyOut: Clause<"copy_out"> {
@@ -251,6 +253,7 @@ def OSS_DeclareTask : Directive<"declare task"> {
     VersionedClause<OSSC_Num_repetitions>,
     VersionedClause<OSSC_Affinity>,
     VersionedClause<OSSC_Period>,
+    VersionedClause<OSSC_Data_dist>,
     VersionedClause<OSSC_CopyIn>,
     VersionedClause<OSSC_CopyOut>,
     VersionedClause<OSSC_CopyInOut>,

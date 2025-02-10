@@ -153,7 +153,8 @@ getSingleClause(OmpSsClauseKind CKind, ExprResult &IfRes, ExprResult &FinalRes,
 }
 
 static SmallVectorImpl<Expr *> *getClauseList(
-    OmpSsClauseKind CKind, SmallVectorImpl<Expr *> &Ins,
+    OmpSsClauseKind CKind, SmallVectorImpl<Expr *> &DataDist,
+    SmallVectorImpl<Expr *> &Ins, 
     SmallVectorImpl<Expr *> &Outs, SmallVectorImpl<Expr *> &Inouts,
     SmallVectorImpl<Expr *> &Concurrents, SmallVectorImpl<Expr *> &Commutatives,
     SmallVectorImpl<Expr *> &WeakIns, SmallVectorImpl<Expr *> &WeakOuts,
@@ -188,6 +189,8 @@ static SmallVectorImpl<Expr *> *getClauseList(
     return &CopyOut;
   case OSSC_copy_inout:
     return &CopyInOut;
+  case OSSC_data_dist:
+    return &DataDist;
   default:
     return nullptr;
   }
@@ -238,7 +241,8 @@ bool Parser::ParseDeclareTaskClauses(
     ExprResult &PriorityRes, ExprResult &OnreadyRes,
     ExprResult &NumInstancesRes, ExprResult &OntoRes,
     ExprResult &NumRepetitionsRes, ExprResult &PeriodRes,
-    ExprResult &AffinityRes, SmallVectorImpl<Expr *> &CopyIn,
+    ExprResult &AffinityRes, SmallVectorImpl<Expr *> &DataDist,
+    SmallVectorImpl<Expr *> &CopyIn,
     SmallVectorImpl<Expr *> &CopyOut, SmallVectorImpl<Expr *> &CopyInOut,
     bool &CopyDeps, bool &Wait, unsigned &Device, SourceLocation &DeviceLoc,
     SmallVectorImpl<Expr *> &Labels, SmallVectorImpl<Expr *> &Ins,
@@ -281,7 +285,7 @@ bool Parser::ParseDeclareTaskClauses(
     StringRef ClauseName = II->getName();
     OmpSsClauseKind CKind = getOmpSsClauseKind(ClauseName);
 
-    Vars = getClauseList(CKind, Ins, Outs, Inouts, Concurrents, Commutatives,
+    Vars = getClauseList(CKind, DataDist, Ins, Outs, Inouts, Concurrents, Commutatives,
                          WeakIns, WeakOuts, WeakInouts, WeakConcurrents,
                          WeakCommutatives, CopyIn, CopyOut, CopyInOut);
 
@@ -334,6 +338,7 @@ bool Parser::ParseDeclareTaskClauses(
       FirstClauses[unsigned(CKind)] = true;
       break;
     }
+
     case OSSC_wait: {
       SourceLocation Loc = Tok.getLocation();
       ConsumeToken();
@@ -373,7 +378,7 @@ bool Parser::ParseDeclareTaskClauses(
 
       if (!IsError) {
         SmallVectorImpl<Expr *> *DepList = getClauseList(
-            getOmpSsClauseFromDependKinds(DepKindsOrdered), DepIns, DepOuts,
+            getOmpSsClauseFromDependKinds(DepKindsOrdered), DataDist, DepIns, DepOuts,
             DepInouts, DepConcurrents, DepCommutatives, DepWeakIns, DepWeakOuts,
             WeakInouts, DepWeakConcurrents, DepWeakCommutatives, CopyIn,
             CopyOut, CopyInOut);
@@ -411,6 +416,8 @@ bool Parser::ParseDeclareTaskClauses(
         IsError = true;
       FirstClauses[unsigned(CKind)] = true;
       break;
+    
+    case OSSC_data_dist:
     case OSSC_copy_in:
     case OSSC_copy_out:
     case OSSC_copy_inout:
@@ -552,10 +559,11 @@ Parser::ParseOSSDeclareTaskClauses(Parser::DeclGroupPtrTy Ptr,
   SmallVector<Expr *, 4> CopyIn;
   SmallVector<Expr *, 4> CopyOut;
   SmallVector<Expr *, 4> CopyInOut;
+  SmallVector<Expr *, 4> DataDist;
 
   bool IsError = ParseDeclareTaskClauses(
       IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes, NumInstancesRes,
-      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, CopyIn, CopyOut,
+      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, DataDist, CopyIn, CopyOut,
       CopyInOut, CopyDeps, Wait, Device, DeviceLoc, Labels, Ins, Outs, Inouts,
       Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts, WeakConcurrents,
       WeakCommutatives, DepIns, DepOuts, DepInouts, DepConcurrents,
@@ -578,7 +586,7 @@ Parser::ParseOSSDeclareTaskClauses(Parser::DeclGroupPtrTy Ptr,
       Ptr, IfRes.get(), FinalRes.get(), CostRes.get(), PriorityRes.get(),
       OnreadyRes.get(), NumInstancesRes.get(), OntoRes.get(),
       NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), CopyDeps,
-      Wait, Device, DeviceLoc, CopyIn, CopyOut, CopyInOut, Labels, Ins, Outs,
+      Wait, Device, DeviceLoc, DataDist, CopyIn, CopyOut, CopyInOut, Labels, Ins, Outs,
       Inouts, Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts,
       WeakConcurrents, WeakCommutatives, DepIns, DepOuts, DepInouts,
       DepConcurrents, DepCommutatives, DepWeakIns, DepWeakOuts, DepWeakInouts,
@@ -1092,6 +1100,7 @@ OSSClause *Parser::ParseOmpSsClause(OmpSsDirectiveKind DKind,
     }
     Clause = ParseOmpSsSingleExprClause(CKind, WrongDirective);
     break;
+  case OSSC_data_dist:
   case OSSC_copy_deps:
   case OSSC_wait:
   case OSSC_update:

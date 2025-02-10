@@ -12434,7 +12434,7 @@ public:
       DeclGroupPtrTy DG, Expr *If, Expr *Final, Expr *Cost, Expr *Priority,
       Expr *Onready, Expr *NumInstances, Expr *Onto, Expr *NumRepetitions,
       Expr *Period, Expr *Affinity, bool CopyDeps, bool Wait, unsigned Device,
-      SourceLocation DeviceLoc, ArrayRef<Expr *> CopyIn,
+      SourceLocation DeviceLoc, ArrayRef<Expr *> DataDist, ArrayRef<Expr *> CopyIn,
       ArrayRef<Expr *> CopyOut, ArrayRef<Expr *> CopyInOut,
       ArrayRef<Expr *> Labels, ArrayRef<Expr *> Ins, ArrayRef<Expr *> Outs,
       ArrayRef<Expr *> Inouts, ArrayRef<Expr *> Concurrents,

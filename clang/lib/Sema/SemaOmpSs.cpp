@@ -4312,7 +4312,8 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
     DeclGroupPtrTy DG, Expr *If, Expr *Final, Expr *Cost, Expr *Priority,
     Expr *Onready, Expr *NumInstances, Expr *Onto, Expr *NumRepetitions,
     Expr *Period, Expr *Affinity, bool CopyDeps, bool Wait, unsigned Device,
-    SourceLocation DeviceLoc, ArrayRef<Expr *> CopyIn, ArrayRef<Expr *> CopyOut,
+    SourceLocation DeviceLoc, ArrayRef<Expr *> DataDist,
+    ArrayRef<Expr *> CopyIn, ArrayRef<Expr *> CopyOut,
     ArrayRef<Expr *> CopyInOut, ArrayRef<Expr *> Labels, ArrayRef<Expr *> Ins,
     ArrayRef<Expr *> Outs, ArrayRef<Expr *> Inouts,
     ArrayRef<Expr *> Concurrents, ArrayRef<Expr *> Commutatives,
@@ -4541,6 +4542,42 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
     Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)
         << getOmpSsClauseName(OSSC_copy_deps) << "fpga";
   }
+
+  if (!DataDist.empty()) {
+    if (DataDist.size() % 3 != 0) {
+      Diag(DataDist.front()->getExprLoc(), diag::err_oss_fpga_invalid_datadist_args);
+    }
+    else {
+      for (size_t i = 0; i < DataDist.size(); i += 3) {
+        
+        // Check first argument: must be "block" or "cyclick" (by now)
+        Expr *firstArg = DataDist[i];
+        auto *strLiteral = dyn_cast<StringLiteral>(firstArg->IgnoreImpCasts());
+        if (!strLiteral || !(strLiteral->getString() == "block" || strLiteral->getString() == "cyclic")) {
+          Diag(firstArg->getExprLoc(), diag::err_oss_fpga_invalid_datadist_type);
+        }
+
+        // Check second argument: must be a reference to the base of an array
+        Expr *secondArg = DataDist[i+1];
+        if (!dyn_cast<DeclRefExpr>(secondArg->IgnoreImpCasts())) {
+          Diag(secondArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_array_base);
+        }
+
+        // Check third argument: must be an expression representing the size
+        Expr *thirdArg = DataDist[i + 2];
+        thirdArg->IgnoreImpCasts();
+        if (!thirdArg->getType()->isIntegerType() && !thirdArg->getType()->isDependentType()) {
+          Diag(thirdArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_size_expr);
+        }
+      }
+    }
+    if (DevType != OSSTaskDeclAttr::Fpga) {
+        Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)
+            << getOmpSsClauseName(OSSC_data_dist) << "fpga";
+    }
+  }
+
+
   if (!CopyIn.empty()) {
     for (Expr *e : CopyIn) {
       if (!dyn_cast<OSSArrayShapingExpr>(e)) {
@@ -4722,7 +4759,8 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
       Context, IfRes.get(), FinalRes.get(), CostRes.get(), PriorityRes.get(),
       CopyDeps, Wait, DevType, OnreadyRes.get(), NumInstancesRes.get(),
       OntoRes.get(), NumRepetitionsRes.get(), PeriodRes.get(),
-      AffinityRes.get(), const_cast<Expr **>(CopyIn.data()), CopyIn.size(),
+      AffinityRes.get(), const_cast<Expr **>(DataDist.data()), DataDist.size(),
+      const_cast<Expr **>(CopyIn.data()), CopyIn.size(),
       const_cast<Expr **>(CopyOut.data()), CopyOut.size(),
       const_cast<Expr **>(CopyInOut.data()), CopyInOut.size(),
       const_cast<Expr **>(LabelsRes.data()), LabelsRes.size(),

@@ -229,6 +229,7 @@ void OSSTaskDeclAttr::printPrettyPragma(
     E->printPretty(OS, nullptr, Policy);
     OS << ")";
   }
+  l("data_dist", "(", dataDist_size(), dataDist_begin(), dataDist_end(), OS, Policy);
   l("copy_in", "(", copyIn_size(), copyIn_begin(), copyIn_end(), OS, Policy);
   l("copy_out", "(", copyOut_size(), copyOut_begin(), copyOut_end(), OS,
     Policy);

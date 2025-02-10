@@ -352,6 +352,7 @@ void Sema::InstantiateOSSDeclareTaskAttr(
   SmallVector<Expr *, 4> CopyIn;
   SmallVector<Expr *, 4> CopyOut;
   SmallVector<Expr *, 4> CopyInOut;
+  SmallVector<Expr *, 4> DataDist;
 
   // Substitute a single OmpSs clause, which is a potentially-evaluated
   // full-expression.
@@ -405,6 +406,7 @@ void Sema::InstantiateOSSDeclareTaskAttr(
     l(Attr.depWeakConcurrents_size(), Attr.depWeakConcurrents_begin(), Attr.depWeakConcurrents_end(), DepWeakConcurrents);
     l(Attr.depWeakCommutatives_size(), Attr.depWeakCommutatives_begin(), Attr.depWeakCommutatives_end(), DepWeakCommutatives);
     l(Attr.reductions_size(), Attr.reductions_begin(), Attr.reductions_end(), Reductions);
+    l(Attr.dataDist_size(), Attr.dataDist_begin(), Attr.dataDist_end(), DataDist);
     l(Attr.copyIn_size(), Attr.copyIn_begin(), Attr.copyIn_end(), CopyIn);
     l(Attr.copyOut_size(), Attr.copyOut_begin(), Attr.copyOut_end(), CopyOut);
     l(Attr.copyInOut_size(), Attr.copyInOut_begin(), Attr.copyInOut_end(),
@@ -492,7 +494,7 @@ void Sema::InstantiateOSSDeclareTaskAttr(
       ConvertDeclToDeclGroup(New), IfRes.get(), FinalRes.get(), CostRes.get(),
       PriorityRes.get(), OnreadyRes.get(), NumInstancesRes.get(), OntoRes.get(),
       NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), CopyDeps,
-      Wait, Device, SourceLocation(), CopyIn, CopyOut, CopyInOut, Labels, Ins,
+      Wait, Device, SourceLocation(), DataDist, CopyIn, CopyOut, CopyInOut, Labels, Ins,
       Outs, Inouts, Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts,
       WeakConcurrents, WeakCommutatives, DepIns, DepOuts, DepInouts,
       DepConcurrents, DepCommutatives, DepWeakIns, DepWeakOuts, DepWeakInouts,

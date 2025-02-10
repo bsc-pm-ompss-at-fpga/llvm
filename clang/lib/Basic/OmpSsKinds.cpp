@@ -122,6 +122,7 @@ unsigned clang::getOmpSsSimpleClauseType(OmpSsClauseKind Kind,
   case OSSC_num_repetitions:
   case OSSC_period:
   case OSSC_affinity:
+  case OSSC_data_dist:
   case OSSC_copy_in:
   case OSSC_copy_out:
   case OSSC_copy_inout:
@@ -206,6 +207,7 @@ const char *clang::getOmpSsSimpleClauseTypeName(OmpSsClauseKind Kind,
   case OSSC_num_repetitions:
   case OSSC_period:
   case OSSC_affinity:
+  case OSSC_data_dist:
   case OSSC_copy_in:
   case OSSC_copy_out:
   case OSSC_copy_inout:

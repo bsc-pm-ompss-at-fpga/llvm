@@ -9786,6 +9786,8 @@ Expected<Attr *> ASTImporter::Import(const Attr *FromAttr) {
         AI.importArg(From->getNumRepetitions()).value(),
         AI.importArg(From->getPeriod()).value(),
         AI.importArg(From->getAffinity()).value(),
+        AI.importArrayArg(From->dataDist(), From->dataDist_size()).value(),
+        From->dataDist_size(),
         AI.importArrayArg(From->copyIn(), From->copyIn_size()).value(),
         From->copyIn_size(),
         AI.importArrayArg(From->copyOut(), From->copyOut_size()).value(),

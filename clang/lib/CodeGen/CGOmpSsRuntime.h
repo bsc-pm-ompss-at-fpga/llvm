@@ -123,6 +123,7 @@ struct OSSTaskDataTy final {
   const Expr *Period = nullptr;
   const Expr *Affinity = nullptr;
   SmallVector<const Expr *, 2> Labels;
+  SmallVector<Expr *, 4> DataDist;
   bool CopyDeps = false;
   bool Wait = false;
   const Expr *Onready = nullptr;
