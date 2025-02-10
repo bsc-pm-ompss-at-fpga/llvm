@@ -430,6 +430,82 @@ public:
     return stmts;
   }
 
+
+  Expr *ReplaceParamsInExpr(ASTContext &Ctx, Expr *expr, llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
+    if (!expr) return nullptr;
+
+    // We delete implicit castings or unnecessary parentheses before analyzing the expression
+    while (auto *castExpr = dyn_cast<ImplicitCastExpr>(expr)) {
+        expr = castExpr->getSubExpr();
+    }
+    
+    while (auto *parenExpr = dyn_cast<ParenExpr>(expr)) {
+        expr = parenExpr->getSubExpr();
+    }
+    
+    /*
+      We consider three possible expressions:
+        1. Reference to a parameter
+        2. Binary operator
+        3. Unary operator
+
+      In case of operations we make recursive calls of the subexpressions, 
+      and add parentheses whenever necessary to conservatively maintain
+      equivalence with the original expression.
+    */
+
+    // The expression is a reference to a parameter
+    if (auto *declRef = dyn_cast<DeclRefExpr>(expr)) {
+        if (auto *decl = dyn_cast<ParmVarDecl>(declRef->getDecl())) {
+            auto it = paramToArgMap.find(decl);
+            if (it != paramToArgMap.end()) {
+                Expr *replacement = it->second;
+
+                if (!isa<DeclRefExpr>(replacement) && !isa<IntegerLiteral>(replacement) && !isa<ParenExpr>(replacement)) {
+                    return new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), replacement);
+                }
+                return replacement;
+            }
+        }
+    }
+
+    // The expression is a binary op, so we replace its operands
+    if (auto *binOp = dyn_cast<BinaryOperator>(expr)) {
+        Expr *LHS = ReplaceParamsInExpr(Ctx, binOp->getLHS(), paramToArgMap);
+        Expr *RHS = ReplaceParamsInExpr(Ctx, binOp->getRHS(), paramToArgMap);
+
+        Expr *newExpr = BinaryOperator::Create(
+            Ctx, LHS ? LHS : binOp->getLHS(),
+            RHS ? RHS : binOp->getRHS(),
+            binOp->getOpcode(), binOp->getType(),
+            binOp->getValueKind(), binOp->getObjectKind(), {}, {});
+
+        if (!isa<DeclRefExpr>(expr) && !isa<IntegerLiteral>(expr)) {
+            return new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), newExpr);
+        }
+
+        return newExpr;
+    }
+
+    // The expression is a unary op, so we replace the operand
+    if (auto *unaryOp = dyn_cast<UnaryOperator>(expr)) {
+        Expr *subExpr = ReplaceParamsInExpr(Ctx, unaryOp->getSubExpr(), paramToArgMap);
+
+        Expr *newExpr = UnaryOperator::Create(Ctx, subExpr ? subExpr : unaryOp->getSubExpr(),
+                                              unaryOp->getOpcode(), unaryOp->getType(),
+                                              unaryOp->getValueKind(), unaryOp->getObjectKind(), {}, false, {});
+
+        if (subExpr && !isa<DeclRefExpr>(subExpr) && !isa<IntegerLiteral>(subExpr)) {
+            newExpr = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), newExpr);
+        }
+
+        return newExpr;
+    }
+
+    return expr;
+  }
+
+
   bool TaskCall(CallExpr *callExpr, OSSTaskDeclAttr *attr) {
     auto *declFunctionTask = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl());
 
@@ -491,6 +567,25 @@ public:
 
       copiesDecl = makeVarDecl(typeArgs, "__mcxx_copies");
       stmts.push_back(makeDeclStmt(copiesDecl));
+    }
+
+    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> paramToArgMap;
+
+    // First forloop to have a param-arg mapping so that it's possible for 
+    // references to task arguments to be replaced by call arguments.
+    for (auto [argIt, paramIt, argEnd, paramEnd] =
+             std::tuple{callExpr->arg_begin(),
+                        dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())
+                            ->param_begin(),
+                        callExpr->arg_end(),
+                        dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())
+                            ->param_end()};
+         argIt != argEnd && paramIt != paramEnd; ++argIt, ++paramIt) {
+      
+      Expr *arg = *argIt;
+      ParmVarDecl *param = *paramIt;
+
+      paramToArgMap[param] = arg;
     }
 
     int paramId = 0;
@@ -594,8 +689,13 @@ public:
           Expr *baseExpr = arg;
           if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
               Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+
+              // References to task's arguments should be replaced by the arguments of the call
+              lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
+              Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), arg);
+
               baseExpr = BinaryOperator::Create(
-                  Ctx, arg, 
+                  Ctx, wrappedArg, 
                   lowerBoundExpr,  
                   BinaryOperatorKind::BO_Add, type,
                   ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
