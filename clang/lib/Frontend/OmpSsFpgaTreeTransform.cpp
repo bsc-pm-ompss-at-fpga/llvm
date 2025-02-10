@@ -990,10 +990,7 @@ ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,
 llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem >
 ComputeLocalmems(FunctionDecl *FD) {
   auto *taskAttr = FD->getAttr<OSSTaskDeclAttr>();
-  // First, compute the direction tags of the parameters. Do note that not
-  // all parameters are guaranteed to be present
-  ParamDependencyMap currentAssignationsOfArrays =
-      computeDependencyMap(taskAttr);
+  ParamDependencyMap currentAssignationsOfArrays;
 
   // Use a SmallVector as we need ordered iteration
   // this is needed for reproducible builds
@@ -1001,8 +998,9 @@ ComputeLocalmems(FunctionDecl *FD) {
   llvm::SmallVector<const ParmVarDecl *> parametersToLocalmem;
 
   // Then compute the list of localmem parameters
-  // If copy_deps
+  // If copy_deps, get dependency information
   if (taskAttr->getCopyDeps()) {
+    currentAssignationsOfArrays = computeDependencyMap(taskAttr);
     for (auto *param : FD->parameters()) {
       if (currentAssignationsOfArrays.find(param) !=
           currentAssignationsOfArrays.end()) {
