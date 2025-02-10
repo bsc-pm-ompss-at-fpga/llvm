@@ -63,6 +63,11 @@ using WrapperPortMap =
     llvm::SmallMapVector<const Decl *,
                          std::array<bool, size_t(WrapperPort::NUM_PORTS)>, 16>;
 
+using DataDistMap = 
+    llvm::SmallDenseMap<const DeclRefExpr*, 
+                        std::pair<const StringLiteral*, const Expr*>>;
+
+
 struct LocalmemInfo {
   int ParamIdx = -1;
   const OSSArrayShapingExpr *FixedArrayRef;
@@ -110,9 +115,12 @@ OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        WrapperPortMap &WrapperPortMap, uint64_t FpgaPortWidth,
                        bool CreatesTasks, bool instrumented);
 
-using ParamDependencyMap =
-    llvm::SmallDenseMap<const ParmVarDecl *,
-                        std::pair<const Expr *, LocalmemInfo::Dir>>;
+// We have as map value a vector, since there can be multiple different 
+// dependencies on the same parameter (slices of an array). 
+using ParamDependencyMap = llvm::SmallDenseMap<const ParmVarDecl *,
+                      llvm::SmallVector<std::pair<const Expr *, LocalmemInfo::Dir>, 20>>;
+
+                    
 // Compute the direction tags of the parameters. Do note that not
 // all parameters are guaranteed to be present
 ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,

@@ -452,22 +452,29 @@ public:
       copies =
           ComputeLocalmems(dyn_cast<FunctionDecl>(callExpr->getCalleeDecl()));
     else {
-      for (auto &&[param, dependency] : dependencyMap) {
-        if (auto *arrExpr = dyn_cast<OSSArrayShapingExpr>(dependency.first)) {
-          copies.push_back(std::pair<const ParmVarDecl *, LocalmemInfo>(
-              param, LocalmemInfo{-1, arrExpr, dependency.second}));
-        } else {
-          copies.push_back(std::pair<const ParmVarDecl *, LocalmemInfo>(
-              param, LocalmemInfo{-1, nullptr, dependency.second}));
+      for (auto &&[param, dependencies] : dependencyMap) {
+        for (auto &&dependency : dependencies) {
+          if (auto *arrExpr = dyn_cast<OSSArrayShapingExpr>(dependency.first)) {
+            copies.push_back(std::pair<const ParmVarDecl *, LocalmemInfo>(
+                param, LocalmemInfo{-1, arrExpr, dependency.second}));
+          } else {
+            copies.push_back(std::pair<const ParmVarDecl *, LocalmemInfo>(
+                param, LocalmemInfo{-1, nullptr, dependency.second}));
+          }
         }
       }
     }
 
     VarDecl *depsDecl = nullptr;
-    if (!dependencyMap.empty()) {
+    size_t totalDependencies = 0;
+    for (const auto &entry : dependencyMap) {
+      totalDependencies += entry.second.size(); 
+    }
+    
+    if (totalDependencies > 0) {
       auto typeArgs = Ctx.getConstantArrayType(
-          Ctx.UnsignedLongLongTy, llvm::APInt(64, dependencyMap.size()),
-          makeIntegerLiteral(dependencyMap.size()),
+          Ctx.UnsignedLongLongTy, llvm::APInt(64, totalDependencies),
+          makeIntegerLiteral(totalDependencies),
           ArrayType::ArraySizeModifier::Normal, 0);
 
       depsDecl = makeVarDecl(typeArgs, "__mcxx_deps");
@@ -558,56 +565,62 @@ public:
           dependIt != dependencyMap.end()) {
         needsDeps = true;
 
-        auto *flagExpression = BinaryOperator::Create(
-            Ctx, makeIntegerLiteral(uint64_t(dependIt->second.second)),
-            makeIntegerLiteral(58ULL), BO_Shl, Ctx.UnsignedIntTy,
-            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+        for (const auto &[depExpr, dir] : dependIt->second) {
+          auto *flagExpression = BinaryOperator::Create(
+              Ctx, makeIntegerLiteral(uint64_t(dir)),
+              makeIntegerLiteral(58ULL), BO_Shl, Ctx.UnsignedIntTy,
+              ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
 
-        auto paramType = param->getType();
-        auto dataType = paramType;
-        if (dataType->isPointerType()) {
-          dataType = dataType->getPointeeType();
+          auto paramType = param->getType();
+          auto dataType = paramType;
+          if (dataType->isPointerType()) {
+            dataType = dataType->getPointeeType();
+          }
+          auto type = getTypeStr(AllocatedStringRef(
+              "__mcxx_ptr_t<" + typeToString(dataType) + " >"));
+
+          auto *ptrVar = makeVarDecl(
+              type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
+
+          auto *valExpression = BinaryOperator::Create(
+              Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+              makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+              ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
+          stmts.push_back(makeDeclStmt(ptrVar));
+
+          // The following code is the (possible) creation of the operation 
+          // that corresponds to the possible offset of the dependency
+          Expr *baseExpr = arg;
+          if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
+              Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+              baseExpr = BinaryOperator::Create(
+                  Ctx, arg, 
+                  lowerBoundExpr,  
+                  BinaryOperatorKind::BO_Add, type,
+                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+          } 
+        
+          stmts.push_back(BinaryOperator::Create(
+              Ctx, makeDeclRefExpr(ptrVar), baseExpr, BinaryOperatorKind::BO_Assign,
+              type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
+              {}));
+          stmts.push_back(BinaryOperator::Create(
+              Ctx,
+              new (Ctx) ArraySubscriptExpr(
+                  makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+                  QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
+                          0),
+                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+              BinaryOperator::Create(
+                  Ctx, flagExpression,
+                  makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+                  BinaryOperatorKind::BO_Or, type, ExprValueKind::VK_LValue,
+                  ExprObjectKind::OK_Ordinary, {}, {}),
+              BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
+              ExprObjectKind::OK_Ordinary, {}, {}));
+          ++depId;
         }
-        auto type = getTypeStr(AllocatedStringRef(
-            "__mcxx_ptr_t<" + typeToString(dataType) + " >"));
-
-        auto *ptrVar = makeVarDecl(
-            type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
-
-        auto *valExpression = BinaryOperator::Create(
-            Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-            makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
-            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-
-        stmts.push_back(makeDeclStmt(ptrVar));
-
-        // previously, in mercurium we used to support passing slices of an
-        // array here. This is the resulting code with that feature removed.
-        stmts.push_back(BinaryOperator::Create(
-            Ctx, makeDeclRefExpr(ptrVar), arg, BinaryOperatorKind::BO_Assign,
-            type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
-            {}));
-        stmts.push_back(BinaryOperator::Create(
-            Ctx,
-            new (Ctx) ArraySubscriptExpr(
-                makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
-                QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
-                         0),
-                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-            valExpression,
-            BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
-            ExprObjectKind::OK_Ordinary, {}, {}));
-        stmts.push_back(BinaryOperator::Create(
-            Ctx,
-            new (Ctx) ArraySubscriptExpr(
-                makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
-                QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
-                         0),
-                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-            flagExpression,
-            BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
-            ExprObjectKind::OK_Ordinary, {}, {}));
-        ++depId;
       }
       ++paramId;
     }
@@ -951,12 +964,8 @@ ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,
       auto *decl = GetTheArgument(DepExpr);
       if (!decl)
         continue;
-      auto res = currentAssignationsOfArrays.find(decl);
-      if (res != currentAssignationsOfArrays.end()) {
-        res->second.second = LocalmemInfo::Dir(res->second.second | dir);
-      } else {
-        currentAssignationsOfArrays.insert({decl, {DepExpr, dir}});
-      };
+      auto &depList = currentAssignationsOfArrays[decl];
+      depList.emplace_back(DepExpr, dir);
     }
   };
   EmitDepListIterDecls(taskAttr->ins(), LocalmemInfo::IN);
@@ -1026,9 +1035,7 @@ ComputeLocalmems(FunctionDecl *FD) {
                   decl) == parametersToLocalmem.end()) {
           parametersToLocalmem.push_back(decl);
       }
-      auto &def = currentAssignationsOfArrays[decl];
-      def.first = arrShapingExpr;
-      def.second = LocalmemInfo::Dir(def.second | dir);
+      currentAssignationsOfArrays[decl].emplace_back(arrShapingExpr, LocalmemInfo::Dir(dir));
     }
   };
   explicitCopy(taskAttr->copyIn(), LocalmemInfo::IN);
@@ -1039,10 +1046,11 @@ ComputeLocalmems(FunctionDecl *FD) {
   llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem > localmemList;
   for (auto *param : parametersToLocalmem) {
     auto data = currentAssignationsOfArrays.find(param);
-    localmemList.push_back(
-        {param,
-         LocalmemInfo{-1, dyn_cast<OSSArrayShapingExpr>(data->second.first),
-                      data->second.second}});
+    if (data != currentAssignationsOfArrays.end()) {
+      for (const auto &[expr, dir] : data->second) {
+         localmemList.push_back({param, LocalmemInfo{-1, dyn_cast<OSSArrayShapingExpr>(expr), dir}});
+      }
+    }
   }
   return localmemList;
 }
