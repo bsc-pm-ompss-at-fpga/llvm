@@ -273,10 +273,12 @@ template <typename Callable> class WrapperGenerator {
   uint64_t HashNum;
   bool CreatesTasks = false;
   bool UsesOmpif = false;
+  bool UsesIMP = false;
   bool MemcpyWideport = false;
   bool UsesLock = false;
   bool NeedsDeps = false;
   WrapperPortMap WrapPortMap;
+  DataDistMap DistMap;
 
   // Use a SmallArray since order is important.
   // This is needed for reproducible builds
@@ -314,6 +316,34 @@ template <typename Callable> class WrapperGenerator {
     }
 
     return value;
+  }
+
+  void computeDataDistMap() {
+    auto *Attr = OriginalFD->getAttr<OSSTaskDeclAttr>();
+    if (!Attr) return;
+    
+    auto dataDistRange = Attr->dataDist();
+    
+    for (auto it = dataDistRange.begin(); it != dataDistRange.end(); it += 3) {
+      Expr *firstArg = *it;
+      Expr *secondArg = *(it + 1);
+      Expr *thirdArg = *(it + 2);
+
+      auto *strDist = dyn_cast<StringLiteral>(firstArg->IgnoreImpCasts());
+      auto *declRef = dyn_cast<DeclRefExpr>(secondArg->IgnoreImpCasts());
+      auto *size = thirdArg;
+
+      if (strDist && declRef && size) {
+        // Provisional debug:
+        llvm::outs() << "Data_dist type: " << strDist->getString() << "\n";
+        llvm::outs() << "DeclRef: " << declRef->getDecl()->getName() << "\n";
+        llvm::outs() << "Size: ";
+        size->printPretty(llvm::outs(), nullptr, OriginalContext.getPrintingPolicy());
+        llvm::outs() << "\n";
+
+        DistMap[declRef] = {strDist, size};
+      }
+    }
   }
 
   std::optional<uint64_t> GenOnto() {
@@ -435,6 +465,24 @@ struct __fpga_copyinfo_t {
   unsigned int size;
 };
 )";
+      if (UsesIMP) {
+        Output << R"(
+struct __data_owner_info_t {
+  unsigned long long int size;
+  unsigned char owner;
+};
+)" << "\n";
+
+        Output
+            << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
+              "instanceNum, "
+              "const ap_uint<8> numArgs, const unsigned long long int args[], "
+              "const ap_uint<8> numDeps, const unsigned long long int deps[], "
+              "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
+              "copies[], int numDataOwners, __data_owner_info_t data_owners[], " 
+              STR_OUTPORT_DECL ", unsigned char owner);\n";
+      }
+
       Output
           << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
              "instanceNum, "
@@ -567,7 +615,7 @@ struct __mcxx_ptr_t {
       }
     }
 
-    auto [needsDeps, replacementMap] = OmpssFpgaTreeTransform(
+    auto [needsDeps, replacementMap] =  OmpssFpgaTreeTransform(
         ToContext, ToIdentifierTable, WrapPortMap,
         CI.getFrontendOpts().OmpSsFpgaMemoryPortWidth, CreatesTasks,
         CI.getFrontendOpts().OmpSsFpgaInstrumentation);
@@ -1057,6 +1105,60 @@ struct __mcxx_ptr_t {
 
   void GenerateWrapperBottom() {
     if (CreatesTasks) {
+      
+      if (UsesIMP) {
+        Output
+            << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
+              "instanceNum, "
+              "const ap_uint<8> numArgs, const unsigned long long int args[], "
+              "const ap_uint<8> numDeps, const unsigned long long int deps[], "
+              "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
+              "copies[], int numDataOwners, __data_owner_info_t data_owners[], " 
+              STR_OUTPORT_DECL ", unsigned char owner) {\n";
+        Output << "#pragma HLS inline\n";
+        Output << "  const ap_uint<2> destId = " STR_NEW_TASK_CODE ";\n";
+        Output << "  ap_uint<64> tmp;\n";
+        Output << "  tmp(15,8)  = numArgs;\n";
+        Output << "  tmp(23,16) = numDeps;\n";
+        Output << "  tmp(31,24) = numCopies;\n";
+        Output << "  tmp(39,32) = numDataOwners;\n";
+        Output << "  tmp(47,40) = owner;\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", destId, 0") "\n";
+        Output << "  tmp(47,40) = instanceNum;\n";
+        Output << "  tmp(33,0)  = type(33,0);\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
+        Output << "  for (ap_uint<4> i = 0; i < numDeps(3,0); ++i) {\n";
+        Output << "#pragma HLS unroll\n";
+        Output << "    if (i < numDataOwners) {\n";
+        Output << "      ap_uint<64> ownerdata;\n";
+        Output << "      ownerdata(7,0) = data_owners[i].owner;\n";
+        Output << "      ownerdata(63,32) = data_owners[i].size;\n";
+        Output << "      " STR_OUTPORT_WRITE_FUN("ownerdata, destId, 0") "\n" ;
+        Output << "    }\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+          "deps[i], destId, numArgs == 0 && numCopies == 0 && i == "
+          "numDeps-1") "\n";
+        Output << "  }\n";
+        Output << "  for (ap_uint<4> i = 0; i < numCopies(3,0); ++i) {\n";
+        Output << "#pragma HLS unroll\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "copies[i].copy_address, destId, 0") "\n";
+        Output << "    tmp(7,0) = copies[i].flags;\n";
+        Output << "    tmp(15,8) = copies[i].arg_idx;\n";
+        Output << "    tmp(63,32) = copies[i].size;\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "tmp, destId, numArgs == 0 && i == numCopies-1") "\n";
+        Output << "  }\n";
+        Output << "  for (ap_uint<4> i = 0; i < numArgs(3,0); ++i) {\n";
+        Output << "#pragma HLS unroll\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "args[i], destId, i == numArgs-1") "\n";
+        Output << "  }\n";
+        Output << "}\n";
+        Output << "\n"; // blank line
+      }
+    
       Output
           << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
              "instanceNum, "
@@ -1290,6 +1392,10 @@ public:
 
   bool GenerateWrapperFile() {
     auto numInstances = getNumInstances();
+
+    computeDataDistMap();
+    if (DistMap.size() > 0) UsesIMP = true;
+
     if (!numInstances) {
       return false;
     }
