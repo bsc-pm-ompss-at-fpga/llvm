@@ -334,14 +334,7 @@ template <typename Callable> class WrapperGenerator {
       auto *size = thirdArg;
 
       if (strDist && declRef && size) {
-        // Provisional debug:
-        llvm::outs() << "Data_dist type: " << strDist->getString() << "\n";
-        llvm::outs() << "DeclRef: " << declRef->getDecl()->getName() << "\n";
-        llvm::outs() << "Size: ";
-        size->printPretty(llvm::outs(), nullptr, OriginalContext.getPrintingPolicy());
-        llvm::outs() << "\n";
-
-        DistMap[declRef] = {strDist, size};
+        DistMap[declRef->getDecl()->getName()] = {strDist, size};
       }
     }
   }
@@ -616,9 +609,9 @@ struct __mcxx_ptr_t {
     }
 
     auto [needsDeps, replacementMap] =  OmpssFpgaTreeTransform(
-        ToContext, ToIdentifierTable, WrapPortMap,
+        ToContext, ToIdentifierTable, WrapPortMap, DistMap,
         CI.getFrontendOpts().OmpSsFpgaMemoryPortWidth, CreatesTasks,
-        CI.getFrontendOpts().OmpSsFpgaInstrumentation);
+        CI.getFrontendOpts().OmpSsFpgaInstrumentation, UsesIMP);
     NeedsDeps = needsDeps;
     RepMap = std::move(replacementMap);
     for (Decl *otherDecl : ToContext.getTranslationUnitDecl()->decls()) {

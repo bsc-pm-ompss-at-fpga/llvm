@@ -64,14 +64,13 @@ using WrapperPortMap =
                          std::array<bool, size_t(WrapperPort::NUM_PORTS)>, 16>;
 
 using DataDistMap = 
-    llvm::SmallDenseMap<const DeclRefExpr*, 
-                        std::pair<const StringLiteral*, const Expr*>>;
+    llvm::StringMap<std::pair<const clang::StringLiteral*, const clang::Expr*>>;
 
 
 struct LocalmemInfo {
   int ParamIdx = -1;
   const OSSArrayShapingExpr *FixedArrayRef;
-  enum Dir { IN = 0b01, OUT = 0b10, INOUT = 0b11 };
+  enum Dir { UNDEF = 0b0, IN = 0b01, OUT = 0b10, INOUT = 0b11 };
   Dir dir;
 };
 
@@ -112,8 +111,9 @@ public:
 std::pair<bool, ReplacementMap>
 OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
-                       WrapperPortMap &WrapperPortMap, uint64_t FpgaPortWidth,
-                       bool CreatesTasks, bool instrumented);
+                       WrapperPortMap &WrapperPortMap, DataDistMap &DistMap,
+                       uint64_t FpgaPortWidth,
+                       bool CreatesTasks, bool instrumented, bool usesIMP);
 
 // We have as map value a vector, since there can be multiple different 
 // dependencies on the same parameter (slices of an array). 
