@@ -125,7 +125,7 @@ getSingleClause(OmpSsClauseKind CKind, ExprResult &IfRes, ExprResult &FinalRes,
                 ExprResult &CostRes, ExprResult &PriorityRes,
                 ExprResult &OnreadyRes, ExprResult &NumInstancesRes,
                 ExprResult &OntoRes, ExprResult &NumRepetitionsRes,
-                ExprResult &PeriodRes, ExprResult &Affinity) {
+                ExprResult &PeriodRes, ExprResult &Affinity, ExprResult &Owner) {
   switch (CKind) {
   case OSSC_if:
     return &IfRes;
@@ -147,6 +147,8 @@ getSingleClause(OmpSsClauseKind CKind, ExprResult &IfRes, ExprResult &FinalRes,
     return &PeriodRes;
   case OSSC_affinity:
     return &Affinity;
+  case OSSC_owner:
+    return &Owner;
   default:
     return nullptr;
   };
@@ -241,7 +243,8 @@ bool Parser::ParseDeclareTaskClauses(
     ExprResult &PriorityRes, ExprResult &OnreadyRes,
     ExprResult &NumInstancesRes, ExprResult &OntoRes,
     ExprResult &NumRepetitionsRes, ExprResult &PeriodRes,
-    ExprResult &AffinityRes, SmallVectorImpl<Expr *> &DataDist,
+    ExprResult &AffinityRes, ExprResult &OwnerRes,
+    SmallVectorImpl<Expr *> &DataDist,
     SmallVectorImpl<Expr *> &CopyIn,
     SmallVectorImpl<Expr *> &CopyOut, SmallVectorImpl<Expr *> &CopyInOut,
     bool &CopyDeps, bool &Wait, unsigned &Device, SourceLocation &DeviceLoc,
@@ -329,7 +332,27 @@ bool Parser::ParseDeclareTaskClauses(
       SourceLocation RLoc;
       SingleClause = getSingleClause(
           CKind, IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes,
-          NumInstancesRes, OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes);
+          NumInstancesRes, OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, OwnerRes);
+      *SingleClause = ParseOmpSsParensExpr(getOmpSsClauseName(CKind), RLoc);
+
+      if (SingleClause->isInvalid())
+        IsError = true;
+
+      FirstClauses[unsigned(CKind)] = true;
+      break;
+    }
+
+    case OSSC_owner: {
+      ConsumeToken();
+      if (FirstClauses[unsigned(CKind)]) {
+        Diag(Tok, diag::err_oss_more_one_clause)
+            << getOmpSsDirectiveName(OSSD_task) << getOmpSsClauseName(CKind) << 0;
+        IsError = true;
+      }
+      SourceLocation RLoc;
+      SingleClause = getSingleClause(
+          CKind, IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes,
+          NumInstancesRes, OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, OwnerRes);
       *SingleClause = ParseOmpSsParensExpr(getOmpSsClauseName(CKind), RLoc);
 
       if (SingleClause->isInvalid())
@@ -521,6 +544,7 @@ Parser::ParseOSSDeclareTaskClauses(Parser::DeclGroupPtrTy Ptr,
   ExprResult NumRepetitionsRes;
   ExprResult PeriodRes;
   ExprResult AffinityRes;
+  ExprResult OwnerRes;
 
   bool Wait = false;
   bool CopyDeps = false;
@@ -563,8 +587,8 @@ Parser::ParseOSSDeclareTaskClauses(Parser::DeclGroupPtrTy Ptr,
 
   bool IsError = ParseDeclareTaskClauses(
       IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes, NumInstancesRes,
-      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, DataDist, CopyIn, CopyOut,
-      CopyInOut, CopyDeps, Wait, Device, DeviceLoc, Labels, Ins, Outs, Inouts,
+      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, OwnerRes, DataDist, CopyIn, 
+      CopyOut, CopyInOut, CopyDeps, Wait, Device, DeviceLoc, Labels, Ins, Outs, Inouts,
       Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts, WeakConcurrents,
       WeakCommutatives, DepIns, DepOuts, DepInouts, DepConcurrents,
       DepCommutatives, DepWeakIns, DepWeakOuts, DepWeakInouts,
@@ -585,7 +609,7 @@ Parser::ParseOSSDeclareTaskClauses(Parser::DeclGroupPtrTy Ptr,
   return Actions.ActOnOmpSsDeclareTaskDirective(
       Ptr, IfRes.get(), FinalRes.get(), CostRes.get(), PriorityRes.get(),
       OnreadyRes.get(), NumInstancesRes.get(), OntoRes.get(),
-      NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), CopyDeps,
+      NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), OwnerRes.get(), CopyDeps,
       Wait, Device, DeviceLoc, DataDist, CopyIn, CopyOut, CopyInOut, Labels, Ins, Outs,
       Inouts, Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts,
       WeakConcurrents, WeakCommutatives, DepIns, DepOuts, DepInouts,

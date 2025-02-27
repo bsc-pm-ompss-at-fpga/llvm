@@ -122,6 +122,7 @@ struct OSSTaskDataTy final {
   const Expr *NumRepetitions = nullptr;
   const Expr *Period = nullptr;
   const Expr *Affinity = nullptr;
+  const Expr *Owner = nullptr;
   SmallVector<const Expr *, 2> Labels;
   SmallVector<Expr *, 4> DataDist;
   bool CopyDeps = false;

@@ -120,9 +120,13 @@ class OmpSsFpgaTreeTransformVisitor
   IdentifierInfo *McxxInstrumentEventIdentifier;
   FunctionDecl *McxxInstrumentEvent;
 
-  QualType CalcOwnerType;
-  IdentifierInfo *CalcOwnerIdentifier;
-  FunctionDecl *CalcOwnerFunc;
+  QualType CalcOwnerBlockType;
+  IdentifierInfo *CalcOwnerBlockIdentifier;
+  FunctionDecl *CalcOwnerBlockFunc;
+
+  QualType CalcOwnerCyclicType;
+  IdentifierInfo *CalcOwnerCyclicIdentifier;
+  FunctionDecl *CalcOwnerCyclicFunc;
  
 
   bool needsDeps = false;
@@ -368,12 +372,20 @@ public:
                              DeclarationName(McxxInstrumentEventIdentifier),
                              McxxInstrumentEventType, nullptr, SC_None);
 
-    CalcOwnerType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
-    CalcOwnerIdentifier = &IdentifierTable.get("calc_data_owner");
-    CalcOwnerFunc =
+    CalcOwnerBlockType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
+    CalcOwnerBlockIdentifier = &IdentifierTable.get("calc_data_owner_block");
+    CalcOwnerBlockFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
-                              DeclarationName(CalcOwnerIdentifier),
-                              CalcOwnerType, nullptr, SC_None);
+                              DeclarationName(CalcOwnerBlockIdentifier),
+                              CalcOwnerBlockType, nullptr, SC_None);
+
+    CalcOwnerCyclicType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
+    CalcOwnerCyclicIdentifier = &IdentifierTable.get("calc_data_owner_cyclic");
+    CalcOwnerCyclicFunc =
+        FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
+                              DeclarationName(CalcOwnerCyclicIdentifier),
+                              CalcOwnerCyclicType, nullptr, SC_None);
+
     NumDataOwners = 0;
   }
 
@@ -929,7 +941,7 @@ public:
 
     /*
       But if we use IMP, we must first emit the dependencies with data owner and then the 
-      ones without owner. This is because the create task function for IMP expects the 
+      ones without owner. This is because the runtime create task function for IMP expects the 
       dependencies with data owner to be the first in the dependency array.
     */
 
@@ -1106,7 +1118,7 @@ public:
                   BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
                   ExprObjectKind::OK_Ordinary, {}, {}));
 
-            
+
             // Specific code for data owner info
             if (depId < NumDataOwners) {
               QualType typeOwner = Ctx.getConstType(Ctx.UnsignedCharTy);
@@ -1138,59 +1150,64 @@ public:
 
                 auto dataDistEntry = DistrMap.find(stringKey);
                 if (dataDistEntry != DistrMap.end()) {
-                    const Expr *sizeExpr = dataDistEntry->getValue().second;
-                    Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                  const Expr *sizeExpr = dataDistEntry->getValue().second;
+                  Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                  if (dataDistEntry->getValue().first->getString().equals("block")) {
                     ownerArgs.push_back(sizeExprNonConst);
+                  }
+                  
+                  // Number of nodes (__ompif_size)
+                  QualType ompifSizeType = Ctx.UnsignedCharTy; 
+                  VarDecl *ompifSizeDecl = VarDecl::Create(
+                      Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                      SourceLocation(), &Ctx.Idents.get("__ompif_size"),
+                      ompifSizeType, nullptr, SC_None                      
+                  );
+
+                  Expr *ompifSizeRef = DeclRefExpr::Create(
+                      Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                      ompifSizeDecl, false, SourceLocation(),         
+                      ompifSizeDecl->getType(), VK_LValue                
+                  );
+                  ownerArgs.push_back(ompifSizeRef);
+
+                  // Offset
+                  Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                  lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
+                  ownerArgs.push_back(lowerBoundExpr);
+
+                  Expr *calcOwnerCall = nullptr;
+
+                  if (dataDistEntry->getValue().first->getString().equals("block")) calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
+                  
+                  else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+
+                  stmts.push_back(BinaryOperator::Create(
+                    Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall, BinaryOperatorKind::BO_Assign,
+                    typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                  ));
+
+                  // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
+                  Expr *DepSize = ownerArgs[0]; // Provisional, we need the size of the dependency here
+                  stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
+                  
+                  if (param->getName() == param_owner->getName() && !task_owner_defined) {
+                    task_owner_defined = true;
+                    QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                    taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                    stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                    stmts.push_back(BinaryOperator::Create(
+                        Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                        typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                    ));
+                  }
                 } 
                 else {
                     llvm::errs() << "Error: Key not found in DataDistMap for expression: " << stringKey << "\n";
                 }
-
-                // Number of nodes (__ompif_size)
-                QualType ompifSizeType = Ctx.UnsignedCharTy; 
-                VarDecl *ompifSizeDecl = VarDecl::Create(
-                    Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
-                    SourceLocation(), &Ctx.Idents.get("__ompif_size"),
-                    ompifSizeType, nullptr, SC_None                      
-                );
-
-                Expr *ompifSizeRef = DeclRefExpr::Create(
-                    Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
-                    ompifSizeDecl, false, SourceLocation(),         
-                    ompifSizeDecl->getType(), VK_LValue                
-                );
-                ownerArgs.push_back(ompifSizeRef);
-
-                // Offset
-                Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-                lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
-                ownerArgs.push_back(lowerBoundExpr);
-              }
-
-              Expr *calcOwnerCall = makeCallToFunc(CalcOwnerFunc, ownerArgs);
-              
-              stmts.push_back(BinaryOperator::Create(
-                Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall, BinaryOperatorKind::BO_Assign,
-                typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-              ));
-
-              // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
-              Expr *sizeExpr = ownerArgs[0]; // Provisional, we need the size of the dependency here
-              stmts.append(createDataOwnerInfo(Ctx, ownerDecl, sizeExpr, depId, dataOwnersDecl));        
-              
-              if (param->getName() == param_owner->getName() && !task_owner_defined) {
-                task_owner_defined = true;
-                QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
-                stmts.push_back(makeDeclStmt(taskOwnerDecl));
-
-                stmts.push_back(BinaryOperator::Create(
-                    Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
-                    typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                ));
-              }
+              } 
             }
-    
             ++depId;
           }
         }

@@ -319,7 +319,7 @@ void Sema::InstantiateOSSDeclareTaskAttr(
   addInstantiatedParametersToScope(FD, Pattern, Local, TemplateArgs);
 
   ExprResult IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes, NumInstancesRes,
-      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes;
+      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, OwnerRes;
   bool Wait = Attr.getWait();
   bool CopyDeps = Attr.getCopyDeps();
 
@@ -441,6 +441,8 @@ void Sema::InstantiateOSSDeclareTaskAttr(
     PeriodRes = Subst(E);
   if (auto *E = Attr.getAffinity())
     AffinityRes = Subst(E);
+  if (auto *E = Attr.getOwner())
+    OwnerRes = Subst(E);
 
   if (Attr.getDevice() != OSSTaskDeclAttr::DeviceType::Unknown)
     Device = Attr.getDevice();
@@ -493,7 +495,7 @@ void Sema::InstantiateOSSDeclareTaskAttr(
   (void)ActOnOmpSsDeclareTaskDirective(
       ConvertDeclToDeclGroup(New), IfRes.get(), FinalRes.get(), CostRes.get(),
       PriorityRes.get(), OnreadyRes.get(), NumInstancesRes.get(), OntoRes.get(),
-      NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), CopyDeps,
+      NumRepetitionsRes.get(), PeriodRes.get(), AffinityRes.get(), OwnerRes.get(), CopyDeps,
       Wait, Device, SourceLocation(), DataDist, CopyIn, CopyOut, CopyInOut, Labels, Ins,
       Outs, Inouts, Concurrents, Commutatives, WeakIns, WeakOuts, WeakInouts,
       WeakConcurrents, WeakCommutatives, DepIns, DepOuts, DepInouts,

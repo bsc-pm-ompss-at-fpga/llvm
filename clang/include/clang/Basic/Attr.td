@@ -3769,6 +3769,7 @@ def OSSTaskDecl : Attr {
     ExprArgument<"NumRepetitions">,
     ExprArgument<"Period">,
     ExprArgument<"Affinity">,
+    ExprArgument<"Owner">,
     VariadicExprArgument<"DataDist">,
     VariadicExprArgument<"CopyIn">,
     VariadicExprArgument<"CopyOut">,

@@ -4311,7 +4311,7 @@ static bool actOnOSSReductionKindClause(
 Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
     DeclGroupPtrTy DG, Expr *If, Expr *Final, Expr *Cost, Expr *Priority,
     Expr *Onready, Expr *NumInstances, Expr *Onto, Expr *NumRepetitions,
-    Expr *Period, Expr *Affinity, bool CopyDeps, bool Wait, unsigned Device,
+    Expr *Period, Expr *Affinity, Expr *Owner, bool CopyDeps, bool Wait, unsigned Device,
     SourceLocation DeviceLoc, ArrayRef<Expr *> DataDist,
     ArrayRef<Expr *> CopyIn, ArrayRef<Expr *> CopyOut,
     ArrayRef<Expr *> CopyInOut, ArrayRef<Expr *> Labels, ArrayRef<Expr *> Ins,
@@ -4394,7 +4394,7 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
   ADecl->addAttr(OSSTaskDeclSentinelAttr::CreateImplicit(Context, SR));
 
   ExprResult IfRes, FinalRes, CostRes, PriorityRes, OnreadyRes, NumInstancesRes,
-      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes;
+      OntoRes, NumRepetitionsRes, PeriodRes, AffinityRes, OwnerRes;
   SmallVector<Expr *, 2> LabelsRes;
   SmallVector<Expr *, 4> NdrangesRes;
   OSSTaskDeclAttr::DeviceType DevType = OSSTaskDeclAttr::DeviceType::Unknown;
@@ -4538,6 +4538,18 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
       Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)
           << getOmpSsClauseName(OSSC_affinity) << "fpga";
   }
+
+  if (Owner) {
+
+    // By now we have a provisional debug, need to see which checks do here
+    OwnerRes = Owner;
+
+    std::string ExprStr;
+    llvm::raw_string_ostream OS(ExprStr);
+    Owner->printPretty(OS, nullptr, PrintingPolicy(LangOptions()));
+    llvm::outs() << "Owner expression: " << OS.str() << "\n";
+  }
+
   if (CopyDeps && DevType != OSSTaskDeclAttr::Fpga) {
     Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)
         << getOmpSsClauseName(OSSC_copy_deps) << "fpga";
@@ -4759,7 +4771,7 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
       Context, IfRes.get(), FinalRes.get(), CostRes.get(), PriorityRes.get(),
       CopyDeps, Wait, DevType, OnreadyRes.get(), NumInstancesRes.get(),
       OntoRes.get(), NumRepetitionsRes.get(), PeriodRes.get(),
-      AffinityRes.get(), const_cast<Expr **>(DataDist.data()), DataDist.size(),
+      AffinityRes.get(), OwnerRes.get(), const_cast<Expr **>(DataDist.data()), DataDist.size(),
       const_cast<Expr **>(CopyIn.data()), CopyIn.size(),
       const_cast<Expr **>(CopyOut.data()), CopyOut.size(),
       const_cast<Expr **>(CopyInOut.data()), CopyInOut.size(),
