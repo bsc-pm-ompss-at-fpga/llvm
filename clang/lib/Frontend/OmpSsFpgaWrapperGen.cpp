@@ -274,6 +274,8 @@ template <typename Callable> class WrapperGenerator {
   bool CreatesTasks = false;
   bool UsesOmpif = false;
   bool UsesIMP = false;
+  bool UsesBlockDist = false;
+  bool UsesCyclicDist = false;
   bool MemcpyWideport = false;
   bool UsesLock = false;
   bool NeedsDeps = false;
@@ -335,6 +337,9 @@ template <typename Callable> class WrapperGenerator {
 
       if (strDist && declRef && size) {
         DistMap[declRef->getDecl()->getName()] = {strDist, size};
+
+        if (strDist->getString().equals("block")) UsesBlockDist = true;
+        else if (strDist->getString().equals("cyclic")) UsesCyclicDist = true;
       }
     }
   }
@@ -506,6 +511,25 @@ struct __mcxx_ptr_t {
   T& operator[](long long int i) { return ptr[val/sizeof(T)+i]; }
 };
 )";
+    }
+
+    if (UsesIMP) {
+      if (UsesBlockDist) {
+        Output << R"(
+unsigned char calc_data_owner_block(unsigned int size, unsigned char n_nodes, int offset) {
+  unsigned int block_size = size / n_nodes;
+  unsigned int extra = size % n_nodes;
+  return (offset < (extra * (block_size + 1))) ? (offset / (block_size + 1)) : ((offset - extra) / block_size);
+}
+)";
+      }
+      if (UsesCyclicDist) {
+        Output << R"(
+unsigned char calc_data_owner_cyclic(unsigned char n_nodes, int offset) {
+    return offset % n_nodes;
+}
+)" << "\n";
+      }
     }
 
     if (UsesLock) {
