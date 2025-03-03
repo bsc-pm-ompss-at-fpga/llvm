@@ -4540,15 +4540,19 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
   }
 
   if (Owner) {
-
-    // By now we have a provisional debug, need to see which checks do here
-    OwnerRes = Owner;
-
-    std::string ExprStr;
-    llvm::raw_string_ostream OS(ExprStr);
-    Owner->printPretty(OS, nullptr, PrintingPolicy(LangOptions()));
-    llvm::outs() << "Owner expression: " << OS.str() << "\n";
+      if (!isa<Expr>(Owner)) {
+          // later I will create the specific error
+          // Diag(Owner->getExprLoc(), diag::err_expected_expression);
+      } 
+      else {
+          OwnerRes = Owner;
+          std::string ExprStr;
+          llvm::raw_string_ostream OS(ExprStr);
+          Owner->printPretty(OS, nullptr, PrintingPolicy(LangOptions()));
+          llvm::outs() << "Owner expression: " << OS.str() << "\n";
+      }
   }
+
 
   if (CopyDeps && DevType != OSSTaskDeclAttr::Fpga) {
     Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)

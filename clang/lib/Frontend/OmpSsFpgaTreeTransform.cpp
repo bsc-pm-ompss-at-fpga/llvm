@@ -1038,10 +1038,10 @@ public:
         }
         return nullptr;
       };
-
+  
       ParmVarDecl *param_owner = nullptr;
       LocalmemInfo::Dir max_dir = LocalmemInfo::Dir::UNDEF;
-
+      
       auto UpdateParamOwner = [&](auto &&DepExprsIter, LocalmemInfo::Dir dir) {
         for (const Expr *DepExpr : DepExprsIter) {
           auto *decl = GetTheArgument(DepExpr);
@@ -1064,9 +1064,11 @@ public:
         }
       };
       
-      UpdateParamOwner(attr->inouts(), LocalmemInfo::INOUT);
-      UpdateParamOwner(attr->outs(), LocalmemInfo::OUT);
-      UpdateParamOwner(attr->ins(), LocalmemInfo::IN);
+      if (attr->getOwner() == nullptr) {
+        UpdateParamOwner(attr->inouts(), LocalmemInfo::INOUT);
+        UpdateParamOwner(attr->outs(), LocalmemInfo::OUT);
+        UpdateParamOwner(attr->ins(), LocalmemInfo::IN);
+      }
 
       bool task_owner_defined = false;
 
@@ -1232,7 +1234,7 @@ public:
 
                     stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
                     
-                    if (param->getName() == param_owner->getName() && !task_owner_defined) {
+                    if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
                       task_owner_defined = true;
                       QualType typeTaskOwner = Ctx.UnsignedCharTy;
                       taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
@@ -1240,6 +1242,18 @@ public:
 
                       stmts.push_back(BinaryOperator::Create(
                           Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                          typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                      ));
+                    }
+                    else if (attr->getOwner() != nullptr && !task_owner_defined) {
+                      task_owner_defined = true;
+                      QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                      taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                      stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                      Expr* ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
+                      stmts.push_back(BinaryOperator::Create(
+                          Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
                           typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
                       ));
                     }
