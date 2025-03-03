@@ -2647,6 +2647,8 @@ def fompss_EQ : Joined<["-"], "fompss-2=">, Group<f_Group>;
 def fno_ompss : Flag<["-"], "fno-ompss-2">, Group<f_Group>, Flags<[NoArgumentUnused]>;
 def fdo_not_use_ompss_runtime : Flag<["-"], "fdo-not-use-ompss-2-runtime">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>,
   HelpText<"When compiling with -fompss-2 do not include or link with the runtime.">;
+def fompss_imp : Flag<["-"], "fompss-imp">, Flags<[CC1Option]>, Group<f_Group>,
+  MarshallingInfoFlag<FrontendOpts<"OmpSsIMP">>, HelpText<"Activates Implicit Message Passing (IMP) support">;
 def fompss_fpga : Flag<["-"], "fompss-fpga">, Flags<[CC1Option]>, Group<Action_Group>,
   HelpText<"Ompss2@FPGA wrapper generation">;
 def fompss_fpga_dump : Flag<["-"], "fompss-fpga-dump">, Flags<[CC1Option]>, Group<f_Group>,

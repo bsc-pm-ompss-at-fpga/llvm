@@ -1408,6 +1408,11 @@ public:
   }
 
   bool GenerateWrapperFile() {
+
+    // Check if fompss-imp is well-parsed
+    if (CI.getFrontendOpts().OmpSsIMP) llvm::outs() << "Using -fompss-imp flag\n";
+    else llvm::outs() << "Not using -fompss-imp flag\n";
+
     auto numInstances = getNumInstances();
 
     computeDataDistMap();

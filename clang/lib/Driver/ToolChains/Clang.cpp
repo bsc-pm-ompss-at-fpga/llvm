@@ -6173,6 +6173,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       break;
     }
   }
+
+  if (Args.getLastArg(options::OPT_fompss_imp) && !IsCuda) {
+    CmdArgs.push_back("-fompss-imp");
+  }
+
   if (Args.getLastArg(options::OPT_fompss_fpga_extract) && !IsCuda) {
     CmdArgs.push_back("-fompss-fpga-extract");
   }

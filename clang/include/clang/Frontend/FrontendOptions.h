@@ -529,6 +529,8 @@ public:
   unsigned OmpSsFpgaDump : 1;
   /// Add instrumentation code to FPGA functions
   unsigned OmpSsFpgaInstrumentation : 1;
+  // Activates Implicit Message Passing (IMP) support
+  unsigned OmpSsIMP : 1;
 
   /// Path to the directory where the HLS tasks will get dumped.
   std::string OmpSsFpgaHlsTasksDir;
