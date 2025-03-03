@@ -1188,7 +1188,12 @@ public:
                   ));
 
                   // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
-                  Expr *DepSize = ownerArgs[0]; // Provisional, we need the size of the dependency here
+                  
+                  // The size expression of the dep can use param references, so we need to replace them
+                  // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
+                  Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+                  DepSize = ReplaceParamsInExpr(Ctx, DepSize, paramToArgMap);
+
                   stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
                   
                   if (param->getName() == param_owner->getName() && !task_owner_defined) {
