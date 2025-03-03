@@ -485,8 +485,7 @@ public:
     return expr;
   }
 
-
-  Expr *ReplaceParamsInExpr(ASTContext &Ctx, Expr *expr, llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
+  Expr *ReplaceParamsInExpr(Expr *expr, llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
     if (!expr) return nullptr;
 
     // We delete implicit castings or unnecessary parentheses before analyzing the expression
@@ -526,8 +525,8 @@ public:
 
     // The expression is a binary op, so we replace its operands
     if (auto *binOp = dyn_cast<BinaryOperator>(expr)) {
-        Expr *LHS = ReplaceParamsInExpr(Ctx, binOp->getLHS(), paramToArgMap);
-        Expr *RHS = ReplaceParamsInExpr(Ctx, binOp->getRHS(), paramToArgMap);
+        Expr *LHS = ReplaceParamsInExpr(binOp->getLHS(), paramToArgMap);
+        Expr *RHS = ReplaceParamsInExpr(binOp->getRHS(), paramToArgMap);
 
         Expr *newExpr = BinaryOperator::Create(
             Ctx, LHS ? LHS : binOp->getLHS(),
@@ -544,7 +543,7 @@ public:
 
     // The expression is a unary op, so we replace the operand
     if (auto *unaryOp = dyn_cast<UnaryOperator>(expr)) {
-        Expr *subExpr = ReplaceParamsInExpr(Ctx, unaryOp->getSubExpr(), paramToArgMap);
+        Expr *subExpr = ReplaceParamsInExpr(unaryOp->getSubExpr(), paramToArgMap);
 
         Expr *newExpr = UnaryOperator::Create(Ctx, subExpr ? subExpr : unaryOp->getSubExpr(),
                                               unaryOp->getOpcode(), unaryOp->getType(),
@@ -560,39 +559,70 @@ public:
     return expr;
   }
 
+  Expr *FindDistributedArrayRef(Expr *expr) {
+    if (!expr) return nullptr;
+
+    while (auto *castExpr = dyn_cast<ImplicitCastExpr>(expr)) {
+        expr = castExpr->getSubExpr();
+    }
+    while (auto *parenExpr = dyn_cast<ParenExpr>(expr)) {
+        expr = parenExpr->getSubExpr();
+    }
+
+    if (auto *declRef = dyn_cast<DeclRefExpr>(expr)) {
+        std::string refName = declRef->getDecl()->getNameAsString();
+        if (DistrMap.count(refName)) return declRef;
+    }
+
+    if (auto *binOp = dyn_cast<BinaryOperator>(expr)) {
+        if (Expr *LHS = FindDistributedArrayRef(binOp->getLHS())) {
+            return LHS;
+        }
+        if (Expr *RHS = FindDistributedArrayRef(binOp->getRHS())) {
+            return RHS;
+        }
+    }
+
+    if (auto *unaryOp = dyn_cast<UnaryOperator>(expr)) {
+        return FindDistributedArrayRef(unaryOp->getSubExpr());
+    }
+
+    return nullptr;
+  }
+
   // Custom comparision operator to sort parameters for IMP
   struct CompareParmVarDecl {
     const DataDistMap &dataDistMap;
     const ParamDependencyMap &paramDepMap;
     llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArg;
+    OmpSsFpgaTreeTransformVisitor &visitor;
 
     CompareParmVarDecl(const DataDistMap &ddMap, const ParamDependencyMap &depMap,
-                    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap)
-        : dataDistMap(ddMap), paramDepMap(depMap), paramToArg(paramToArgMap) {}
+                    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap,
+                    OmpSsFpgaTreeTransformVisitor &vis)
+        : dataDistMap(ddMap), paramDepMap(depMap), paramToArg(paramToArgMap), visitor(vis){}
 
     bool operator()(const ParmVarDecl *a, const ParmVarDecl *b) const {
-        Expr *exprA = paramToArg[a];
-        Expr *exprB = paramToArg[b];
+        auto dataDistEntryA = dataDistMap.end();
+        Expr *refA = visitor.FindDistributedArrayRef(paramToArg[a]);
+        if (refA) {
+          if (auto *declRef = dyn_cast<DeclRefExpr>(refA)) {
+            dataDistEntryA = dataDistMap.find(declRef->getDecl()->getNameAsString());
+          }
+        }
 
-        LangOptions LangOpts;
-        LangOpts.CPlusPlus = true; 
-        PrintingPolicy Policy(LangOpts);
+        auto dataDistEntryB = dataDistMap.end();
+        Expr *refB = visitor.FindDistributedArrayRef(paramToArg[b]);
+        if (refB) {
+          if (auto *declRef = dyn_cast<DeclRefExpr>(refB)) {
+            dataDistEntryB = dataDistMap.find(declRef->getDecl()->getNameAsString());
+          }
+        }
 
-        std::string stringKeyA;
-        llvm::raw_string_ostream OSa(stringKeyA);
-        exprA->printPretty(OSa, nullptr, Policy);
-        OSa.flush();
-
-        std::string stringKeyB;
-        llvm::raw_string_ostream OSb(stringKeyB);
-        exprB->printPretty(OSb, nullptr, Policy);
-        OSb.flush();
-
-        bool aInDataDist = dataDistMap.count(stringKeyA) > 0;
-        bool bInDataDist = dataDistMap.count(stringKeyB) > 0;
+        bool aInDataDist = dataDistEntryA != dataDistMap.end();
+        bool bInDataDist = dataDistEntryB != dataDistMap.end();
 
         if (aInDataDist != bInDataDist) return aInDataDist;  
-        
 
         auto getMaxDir = [](const SmallVector<std::pair<const Expr *, LocalmemInfo::Dir>, 20> &vec) {
             LocalmemInfo::Dir maxDir = LocalmemInfo::Dir::IN;
@@ -612,25 +642,27 @@ public:
   };
 
   std::vector<const ParmVarDecl*> getSortedDependencyKeys(const ParamDependencyMap &paramDepMap, 
-                                llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
+                                llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap,
+                                OmpSsFpgaTreeTransformVisitor &visitor) {
     
     std::vector<const ParmVarDecl*> sortedKeys;
     NumDataOwners = 0;
     
     for (const auto &entry : paramDepMap) {
       sortedKeys.push_back(entry.first);
-      
+
       // We take advantage of this loop to count the number of total data owners
-      Expr *arg = paramToArgMap[entry.first];
-      arg = stripCastsAndParens(arg);
-      if (auto *declRefExpr = llvm::dyn_cast<clang::DeclRefExpr>(arg)) {
-        if (DistrMap.count(declRefExpr->getDecl()->getName())) {
-          NumDataOwners += entry.second.size();
+      Expr *ref = FindDistributedArrayRef(paramToArgMap[entry.first]);
+      if (ref) {
+        if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
+          if (DistrMap.count(declRef->getDecl()->getNameAsString())) {
+            NumDataOwners += entry.second.size();
+          }
         }
       }
-    }
+    } 
 
-    std::sort(sortedKeys.begin(), sortedKeys.end(), CompareParmVarDecl(DistrMap, paramDepMap, paramToArgMap));
+    std::sort(sortedKeys.begin(), sortedKeys.end(), CompareParmVarDecl(DistrMap, paramDepMap, paramToArgMap, visitor));
     return sortedKeys;
   } 
 
@@ -904,7 +936,7 @@ public:
                 Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
                 // References to task's arguments should be replaced by the arguments of the call
-                lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
+                lowerBoundExpr = ReplaceParamsInExpr(lowerBoundExpr, paramToArgMap);
                 Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), arg);
 
                 baseExpr = BinaryOperator::Create(
@@ -955,7 +987,7 @@ public:
         which is important because if not specified the task owner is inferred 
         based on the data owner of the first INOUT parameter defined by the user.
       */
-      std::vector<const ParmVarDecl*> sortedParams = getSortedDependencyKeys(dependencyMap, paramToArgMap);
+      std::vector<const ParmVarDecl*> sortedParams = getSortedDependencyKeys(dependencyMap, paramToArgMap, *this);
 
       if (!DistrMap.empty()) {
         auto typeArgs = Ctx.getConstantArrayType(
@@ -1016,17 +1048,14 @@ public:
           if (!decl)
             continue;
 
-          Expr *expr = paramToArgMap[decl];
-          LangOptions LangOpts;
-          LangOpts.CPlusPlus = true; 
-          PrintingPolicy Policy(LangOpts);
+          auto dataDistEntry = DistrMap.end();
+          Expr *ref = FindDistributedArrayRef(paramToArgMap[decl]);
 
-          std::string stringKey;
-          llvm::raw_string_ostream OS(stringKey);
-          expr->printPretty(OS, nullptr, Policy);
-          OS.flush();
-
-          auto dataDistEntry = DistrMap.find(stringKey);
+          if (ref) {
+            if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
+              dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
+            }
+          }
 
           if (dataDistEntry != DistrMap.end() && max_dir == LocalmemInfo::Dir::UNDEF) {
             max_dir = dir;
@@ -1088,7 +1117,7 @@ public:
                 Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
                 // References to task's arguments should be replaced by the arguments of the call
-                lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
+                lowerBoundExpr = ReplaceParamsInExpr(lowerBoundExpr, paramToArgMap);
                 Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param]);
 
                 baseExpr = BinaryOperator::Create(
@@ -1118,7 +1147,6 @@ public:
                   BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
                   ExprObjectKind::OK_Ordinary, {}, {}));
 
-
             // Specific code for data owner info
             if (depId < NumDataOwners) {
               QualType typeOwner = Ctx.getConstType(Ctx.UnsignedCharTy);
@@ -1131,85 +1159,95 @@ public:
                 // The function that infers the data owner based on the distribution 
                 // has three arguments: array size, number of nodes and offset.
 
-                // Size argument: To get the size, we must look at the map of distributed arrays.
-                // So we need prettyPrint, since the argument with which we call (that contains the key of the map)
-                // is an expression, and there are no methods to extract the “name” directly from an expression.
+                /*
+                  Size argument: To get the size, we must look at the map of distributed arrays.
+                  The argument can be either directly a reference to the distributed array or a 
+                  reference + an offset. What is done is to extract the reference by recursively 
+                  traversing the expression, so that the offset is directly argument - reference. 
+                  This trick avoids having to recreate the expression without the reference to obtain the offset.
+                */ 
 
-                // Note that the special treatment is missing here if the argument is not directly the base of 
-                // the distributed array, but a more complex expression.
+                Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
 
-                Expr *expr = paramToArgMap[param];
-                LangOptions LangOpts;
-                LangOpts.CPlusPlus = true; 
-                PrintingPolicy Policy(LangOpts);
+                if (ref) {
+                  if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
+                    auto dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
 
-                std::string stringKey;
-                llvm::raw_string_ostream OS(stringKey);
-                expr->printPretty(OS, nullptr, Policy);
-                OS.flush();
+                    const Expr *sizeExpr = dataDistEntry->getValue().second;
+                    Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                    if (dataDistEntry->getValue().first->getString().equals("block")) {
+                      ownerArgs.push_back(sizeExprNonConst);
+                    }
+                    
+                    // Number of nodes (__ompif_size)
+                    QualType ompifSizeType = Ctx.UnsignedCharTy; 
+                    VarDecl *ompifSizeDecl = VarDecl::Create(
+                        Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                        SourceLocation(), &Ctx.Idents.get("__ompif_size"),
+                        ompifSizeType, nullptr, SC_None                      
+                    );
 
-                auto dataDistEntry = DistrMap.find(stringKey);
-                if (dataDistEntry != DistrMap.end()) {
-                  const Expr *sizeExpr = dataDistEntry->getValue().second;
-                  Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
-                  if (dataDistEntry->getValue().first->getString().equals("block")) {
-                    ownerArgs.push_back(sizeExprNonConst);
-                  }
-                  
-                  // Number of nodes (__ompif_size)
-                  QualType ompifSizeType = Ctx.UnsignedCharTy; 
-                  VarDecl *ompifSizeDecl = VarDecl::Create(
-                      Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
-                      SourceLocation(), &Ctx.Idents.get("__ompif_size"),
-                      ompifSizeType, nullptr, SC_None                      
-                  );
+                    Expr *ompifSizeRef = DeclRefExpr::Create(
+                        Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                        ompifSizeDecl, false, SourceLocation(),         
+                        ompifSizeDecl->getType(), VK_LValue                
+                    );
+                    ownerArgs.push_back(ompifSizeRef);
 
-                  Expr *ompifSizeRef = DeclRefExpr::Create(
-                      Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
-                      ompifSizeDecl, false, SourceLocation(),         
-                      ompifSizeDecl->getType(), VK_LValue                
-                  );
-                  ownerArgs.push_back(ompifSizeRef);
+                    // Offset
+                    Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                    offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                    
+                    Expr *argumentOffset = BinaryOperator::Create(
+                        Ctx, paramToArgMap[param], declRef,              
+                        BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                        ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
 
-                  // Offset
-                  Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-                  lowerBoundExpr = ReplaceParamsInExpr(Ctx, lowerBoundExpr, paramToArgMap);
-                  ownerArgs.push_back(lowerBoundExpr);
+                    Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
 
-                  Expr *calcOwnerCall = nullptr;
+                    Expr *finalOffset = BinaryOperator::Create(
+                        Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
+                        offset->getType(), ExprValueKind::VK_LValue, 
+                        ExprObjectKind::OK_Ordinary, {}, {});
 
-                  if (dataDistEntry->getValue().first->getString().equals("block")) calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
-                  
-                  else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+                    ownerArgs.push_back(finalOffset);
 
-                  stmts.push_back(BinaryOperator::Create(
-                    Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall, BinaryOperatorKind::BO_Assign,
-                    typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                  ));
+                    Expr *calcOwnerCall = nullptr;
 
-                  // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
-                  
-                  // The size expression of the dep can use param references, so we need to replace them
-                  // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
-                  Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
-                  DepSize = ReplaceParamsInExpr(Ctx, DepSize, paramToArgMap);
-
-                  stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
-                  
-                  if (param->getName() == param_owner->getName() && !task_owner_defined) {
-                    task_owner_defined = true;
-                    QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                    taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
-                    stmts.push_back(makeDeclStmt(taskOwnerDecl));
+                    if (dataDistEntry->getValue().first->getString().equals("block")) calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
+                    
+                    else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
 
                     stmts.push_back(BinaryOperator::Create(
-                        Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
-                        typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                      Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall, BinaryOperatorKind::BO_Assign,
+                      typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
                     ));
-                  }
-                } 
+
+                    // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
+                    
+                    // The size expression of the dep can use param references, so we need to replace them
+                    // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
+                    Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+                    DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
+
+                    stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
+                    
+                    if (param->getName() == param_owner->getName() && !task_owner_defined) {
+                      task_owner_defined = true;
+                      QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                      taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                      stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                      stmts.push_back(BinaryOperator::Create(
+                          Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                          typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                      ));
+                    }
+                  } 
+                  else llvm::errs() << "Error: Dist arr not found\n";
+                }
                 else {
-                    llvm::errs() << "Error: Key not found in DataDistMap for expression: " << stringKey << "\n";
+                    llvm::errs() << "Error: Dist arr not found\n";
                 }
               } 
             }
@@ -1244,7 +1282,13 @@ public:
       arguments.push_back(makeIntegerLiteral(0));
     }
 
-    
+    arguments.push_back(makeIntegerLiteral(copId));
+    if (copId > 0) {
+      arguments.push_back(makeDeclRefExpr(copiesDecl));
+    } else {
+      arguments.push_back(makeIntegerLiteral(0));
+    }
+
     if (IMP) {
       arguments.push_back(makeIntegerLiteral(NumDataOwners));
       if (NumDataOwners > 0) {
@@ -1252,13 +1296,6 @@ public:
       } else {
         arguments.push_back(makeIntegerLiteral(0));
       }
-    }
-
-    arguments.push_back(makeIntegerLiteral(copId));
-    if (copId > 0) {
-      arguments.push_back(makeDeclRefExpr(copiesDecl));
-    } else {
-      arguments.push_back(makeIntegerLiteral(0));
     }
 
     arguments.push_back(makeDeclRefExpr(OutPort));
