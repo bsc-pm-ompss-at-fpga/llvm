@@ -2968,9 +2968,9 @@ public:
   ExprResult RebuildOSSArraySectionExpr(Expr *Base, SourceLocation LBracketLoc,
                                         Expr *LowerBound,
                                         SourceLocation ColonLoc, Expr *LengthUpper,
-                                        SourceLocation RBracketLoc, bool ColonForm) {
+                                        SourceLocation RBracketLoc, bool ColonForm, Expr *Owner) {
     return getSema().ActOnOSSArraySectionExpr(Base, LBracketLoc, LowerBound,
-                                              ColonLoc, LengthUpper, RBracketLoc, ColonForm);
+                                              ColonLoc, LengthUpper, RBracketLoc, ColonForm, Owner);
   }
 
   /// Build a new array shaping expression.
@@ -11971,7 +11971,7 @@ TreeTransform<Derived>::TransformOSSArraySectionExpr(OSSArraySectionExpr *E) {
 
   return getDerived().RebuildOSSArraySectionExpr(
       Base.get(), E->getBase()->getEndLoc(), LowerBound.get(), E->getColonLoc(),
-      Length.get(), E->getRBracketLoc(), E->isColonForm());
+      Length.get(), E->getRBracketLoc(), E->isColonForm(), E->getOwner());
 }
 
 template <typename Derived>

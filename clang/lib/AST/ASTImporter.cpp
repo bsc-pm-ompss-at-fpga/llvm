@@ -9271,12 +9271,13 @@ ExpectedStmt ASTNodeImporter::VisitOSSArraySectionExpr(OSSArraySectionExpr *E) {
   auto colonLoc = importChecked(Err, E->getColonLoc());
   auto rBracketLoc = importChecked(Err, E->getRBracketLoc());
   auto colonForm = E->isColonForm();
+  auto Owner = E->getOwner();
 
   if (Err)
     return std::move(Err);
 
   return new (Importer.getToContext())
-      OSSArraySectionExpr(base, lowerBound, lengthUpper, type, VK, OK, colonLoc,
+      OSSArraySectionExpr(base, lowerBound, lengthUpper, Owner, type, VK, OK, colonLoc,
                           rBracketLoc, colonForm);
 }
 

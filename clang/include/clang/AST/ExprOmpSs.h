@@ -58,15 +58,16 @@ namespace clang {
 /// array dimension - 1
 /// When the lower-bound is absent it defaults to 0.
 class OSSArraySectionExpr : public Expr {
-  enum { BASE, LOWER_BOUND, LENGTH_UPPER, END_EXPR };
+  enum { BASE, LOWER_BOUND, LENGTH_UPPER, OWNER, END_EXPR };
   Stmt *SubExprs[END_EXPR];
   SourceLocation ColonLoc;
+  //SourceLocation SemicolonLoc;
   SourceLocation RBracketLoc;
   bool ColonForm;
 
 public:
-  OSSArraySectionExpr(Expr *Base, Expr *LowerBound, Expr *LengthUpper, QualType Type,
-                      ExprValueKind VK, ExprObjectKind OK,
+  OSSArraySectionExpr(Expr *Base, Expr *LowerBound, Expr *LengthUpper, Expr *Owner,
+                      QualType Type, ExprValueKind VK, ExprObjectKind OK,
                       SourceLocation ColonLoc, SourceLocation RBracketLoc,
                       bool ColonForm)
       : Expr(
@@ -75,6 +76,7 @@ public:
     SubExprs[BASE] = Base;
     SubExprs[LOWER_BOUND] = LowerBound;
     SubExprs[LENGTH_UPPER] = LengthUpper;
+    SubExprs[OWNER] = Owner;
     setDependence(computeDependence(this));
   }
 
@@ -109,6 +111,13 @@ public:
   const Expr *getLengthUpper() const { return cast_or_null<Expr>(SubExprs[LENGTH_UPPER]); }
   /// Set length or upper-bound of the array section.
   void setLengthUpper(Expr *E) { SubExprs[LENGTH_UPPER] = E; }
+
+  /// Get the possible owner of the dependency.
+  Expr *getOwner() { return cast_or_null<Expr>(SubExprs[OWNER]); }
+  const Expr *getOwner() const { return cast_or_null<Expr>(SubExprs[OWNER]); }
+
+  /// Set owner of the dependency.
+  void setOwner(Expr *E) { SubExprs[OWNER] = E; }
 
   // Get section form ';' or ':'
   bool isColonForm() const { return ColonForm; }

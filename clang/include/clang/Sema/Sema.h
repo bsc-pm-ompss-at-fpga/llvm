@@ -5791,7 +5791,7 @@ public:
   ExprResult ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
                                       Expr *LowerBound, SourceLocation ColonLoc,
                                       Expr *LengthUpper, SourceLocation RBLoc,
-                                      bool ColonForm = true);
+                                      bool ColonForm = true, Expr *Owner = nullptr);
   ExprResult ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
                                       SourceLocation LBLoc,
                                       SourceLocation RBLoc);

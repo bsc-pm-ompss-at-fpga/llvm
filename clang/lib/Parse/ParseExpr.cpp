@@ -1949,7 +1949,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       BalancedDelimiterTracker T(*this, tok::l_square);
       T.consumeOpen();
       Loc = T.getOpenLocation();
-      ExprResult Length, Stride;
+      ExprResult Length, Stride, Owner;
       SourceLocation ColonLocFirst, ColonLocSecond;
       bool ColonForm = false;
       ExprVector ArgExprs;
@@ -2015,7 +2015,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       };
 
       auto ParseOssSection =
-          [this, &ColonLocFirst, &ColonForm, &Length, &ArgExprs]() {
+          [this, &ColonLocFirst, &ColonForm, &Length, &ArgExprs, &Owner]() {
         // Parse ':' or ';' of the array section
         if (ArgExprs.size() <= 1 && getLangOpts().OmpSs) {
           ColonProtectionRAIIObject RAII(*this);
@@ -2033,6 +2033,14 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
             if (Tok.isNot(tok::r_square) && Tok.isNot(tok::semi)) {
               Length = ParseExpression();
               Length = Actions.CorrectDelayedTyposInExpr(Length);
+            }
+          }
+
+          if (Tok.is(tok::semi)) {
+            ConsumeToken();
+            if (Tok.isNot(tok::r_square)) {
+              Owner = ParseExpression();
+              Owner = Actions.CorrectDelayedTyposInExpr(Owner);
             }
           }
         }
@@ -2060,7 +2068,7 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
           else
             LHS = Actions.ActOnOSSArraySectionExpr(
                 LHS.get(), Loc, ArgExprs.empty() ? nullptr : ArgExprs[0],
-                ColonLocFirst, Length.get(), RLoc, ColonForm);
+                ColonLocFirst, Length.get(), RLoc, ColonForm, Owner.get());
         } else {
           LHS = Actions.ActOnArraySubscriptExpr(getCurScope(), LHS.get(), Loc,
                                                 ArgExprs, RLoc);

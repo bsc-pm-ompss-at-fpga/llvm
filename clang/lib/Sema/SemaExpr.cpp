@@ -5301,7 +5301,7 @@ ExprResult Sema::ActOnOMPArraySectionExpr(Expr *Base, SourceLocation LBLoc,
 ExprResult Sema::ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
                                           Expr *LowerBound,
                                           SourceLocation ColonLoc, Expr *LengthUpper,
-                                          SourceLocation RBLoc, bool ColonForm) {
+                                          SourceLocation RBLoc, bool ColonForm, Expr *Owner) {
 
   if (Base->getType()->isPlaceholderType() &&
       !Base->getType()->isSpecificPlaceholderType(
@@ -5330,13 +5330,25 @@ ExprResult Sema::ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
     LengthUpper = Result.get();
   }
 
+  // Handle the owner expression
+  if (Owner && Owner->getType()->isNonOverloadPlaceholderType()) {
+    ExprResult Result = CheckPlaceholderExpr(Owner);
+    if (Result.isInvalid())
+      return ExprError();
+    Result = DefaultLvalueConversion(Result.get());
+    if (Result.isInvalid())
+      return ExprError();
+    Owner = Result.get();
+  }
+
   // Build an unanalyzed expression if either operand is type-dependent.
   if (Base->isTypeDependent() ||
       (LowerBound &&
        (LowerBound->isTypeDependent() || LowerBound->isValueDependent())) ||
-      (LengthUpper && (LengthUpper->isTypeDependent() || LengthUpper->isValueDependent()))) {
+      (LengthUpper && (LengthUpper->isTypeDependent() || LengthUpper->isValueDependent())) ||
+      (Owner && (Owner->isTypeDependent() || Owner->isValueDependent()))) {
     return new (Context)
-        OSSArraySectionExpr(Base, LowerBound, LengthUpper, Context.DependentTy,
+        OSSArraySectionExpr(Base, LowerBound, LengthUpper, Owner, Context.DependentTy,
                             VK_LValue, OK_Ordinary, ColonLoc, RBLoc, ColonForm);
   }
 
@@ -5391,6 +5403,15 @@ ExprResult Sema::ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
         LengthUpper->getType()->isSpecificBuiltinType(BuiltinType::Char_U))
       Diag(LengthUpper->getExprLoc(), diag::warn_oss_section_is_char)
           << 1 << LengthUpper->getSourceRange();
+  }
+
+  if (Owner) {
+    auto Res = PerformOmpSsImplicitIntegerConversion(Owner->getExprLoc(), Owner);
+    if (Res.isInvalid())
+      return ExprError(Diag(Owner->getExprLoc(),
+                            diag::err_oss_typecheck_section_not_integer)
+                       << 2 << Owner->getSourceRange());
+    Owner = Res.get();
   }
 
   // C99 6.5.2.1p1: "shall have type "pointer to *object* type". Similarly,
@@ -5454,7 +5475,7 @@ ExprResult Sema::ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
   }
 
   return new (Context)
-      OSSArraySectionExpr(Base, LowerBound, LengthUpper, Context.OSSArraySectionTy,
+      OSSArraySectionExpr(Base, LowerBound, LengthUpper, Owner, Context.OSSArraySectionTy,
                           VK_LValue, OK_Ordinary, ColonLoc, RBLoc, ColonForm);
 }
 
