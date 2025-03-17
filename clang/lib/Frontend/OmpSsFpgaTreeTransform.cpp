@@ -127,6 +127,10 @@ class OmpSsFpgaTreeTransformVisitor
   QualType CalcOwnerCyclicType;
   IdentifierInfo *CalcOwnerCyclicIdentifier;
   FunctionDecl *CalcOwnerCyclicFunc;
+
+  QualType CalcOwnerBlockCyclicType;
+  IdentifierInfo *CalcOwnerBlockCyclicIdentifier;
+  FunctionDecl *CalcOwnerBlockCyclicFunc;
  
 
   bool needsDeps = false;
@@ -372,19 +376,26 @@ public:
                              DeclarationName(McxxInstrumentEventIdentifier),
                              McxxInstrumentEventType, nullptr, SC_None);
 
-    CalcOwnerBlockType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
+    CalcOwnerBlockType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
     CalcOwnerBlockIdentifier = &IdentifierTable.get("calc_data_owner_block");
     CalcOwnerBlockFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
                               DeclarationName(CalcOwnerBlockIdentifier),
                               CalcOwnerBlockType, nullptr, SC_None);
 
-    CalcOwnerCyclicType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
+    CalcOwnerCyclicType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
     CalcOwnerCyclicIdentifier = &IdentifierTable.get("calc_data_owner_cyclic");
     CalcOwnerCyclicFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
                               DeclarationName(CalcOwnerCyclicIdentifier),
                               CalcOwnerCyclicType, nullptr, SC_None);
+
+    CalcOwnerBlockCyclicType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
+    CalcOwnerBlockCyclicIdentifier = &IdentifierTable.get("calc_data_owner_block_cyclic");
+    CalcOwnerBlockCyclicFunc =
+        FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
+                              DeclarationName(CalcOwnerBlockCyclicIdentifier),
+                              CalcOwnerBlockCyclicType, nullptr, SC_None);
 
     NumDataOwners = 0;
   }
@@ -1175,7 +1186,7 @@ public:
 
             // Specific code for data owner info
             if (depId < NumDataOwners) {
-              QualType typeOwner = Ctx.getConstType(Ctx.UnsignedCharTy);
+              QualType typeOwner = Ctx.UnsignedCharTy;
               auto *ownerDecl = makeVarDecl(typeOwner, "data_owner_" + std::to_string(depId));
               stmts.push_back(makeDeclStmt(ownerDecl));
 
@@ -1207,9 +1218,13 @@ public:
                       ));
                     }
                     else {
+                      //unsigned char data_owner_{depId} by reference (only void functions supported in FPGAs)
+                      ownerArgs.push_back(makeDeclRefExpr(ownerDecl));
+
+                      // Size of the array
                       const Expr *sizeExpr = dataDistEntry->getValue().second;
                       Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
-                      if (dataDistEntry->getValue().first->getString().equals("block")) {
+                      if (!dataDistEntry->getValue().first->getString().equals("cyclic")) {
                         ownerArgs.push_back(sizeExprNonConst);
                       }
                       
@@ -1247,15 +1262,26 @@ public:
                       ownerArgs.push_back(finalOffset);
 
                       Expr *calcOwnerCall = nullptr;
+                      if (dataDistEntry->getValue().first->getString().equals("block")) {
+                        calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
+                      }            
+                      else if (dataDistEntry->getValue().first->getString().equals("cyclic")) {
+                        calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+                      }
+                      else {
+                        // Chunk argument
+                        StringRef chunkStr = dataDistEntry->getValue().first->getString().substr(13);
+                        unsigned int chunkValue;
+                        chunkStr.getAsInteger(10, chunkValue); 
 
-                      if (dataDistEntry->getValue().first->getString().equals("block")) calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
-                      
-                      else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+                        IntegerLiteral *chunkLiteral = IntegerLiteral::Create(
+                            Ctx, llvm::APInt(64, chunkValue), Ctx.UnsignedIntTy, SourceLocation());
 
-                      stmts.push_back(BinaryOperator::Create(
-                        Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall, BinaryOperatorKind::BO_Assign,
-                        typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                      ));
+                        ownerArgs.push_back(chunkLiteral);
+                        calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
+                      }
+
+                      stmts.push_back(calcOwnerCall);
                     }
 
                     // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]

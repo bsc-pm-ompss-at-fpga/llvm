@@ -4569,38 +4569,51 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
 
   if (!DataDist.empty()) {
     if (DataDist.size() % 3 != 0) {
-        Diag(DataDist.front()->getExprLoc(), diag::err_oss_fpga_invalid_datadist_args);
-    } else {
-        for (size_t i = 0; i < DataDist.size(); i += 3) {
-            // Check first argument: must be "block", "cyclic", or "all"
-            Expr *firstArg = DataDist[i];
-            auto *strLiteral = dyn_cast<StringLiteral>(firstArg->IgnoreImpCasts());
-            if (!strLiteral || !(strLiteral->getString() == "block" ||
-                                 strLiteral->getString() == "cyclic" ||
-                                 strLiteral->getString() == "all")) {
-                Diag(firstArg->getExprLoc(), diag::err_oss_fpga_invalid_datadist_type);
-            }
+      Diag(DataDist.front()->getExprLoc(), diag::err_oss_fpga_invalid_datadist_args);
+    } 
+    else {
+      for (size_t i = 0; i < DataDist.size(); i += 3) {
+        // Check first argument: must be "block", "cyclic", "block-cyclic;chunk" or "all"
+        Expr *firstArg = DataDist[i];
+        auto *strLiteral = dyn_cast<StringLiteral>(firstArg->IgnoreImpCasts());
+        bool validDistType = false;
 
-            // Check second argument: must be a reference to the base of an array
-            Expr *secondArg = DataDist[i + 1];
-            if (!dyn_cast<DeclRefExpr>(secondArg->IgnoreImpCasts())) {
-                Diag(secondArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_array_base);
+        if (strLiteral) {
+          StringRef distType = strLiteral->getString();
+          if (distType == "block" || distType == "cyclic" || distType == "all") {
+            validDistType = true;
+          } 
+          else if (distType.startswith("block-cyclic;")) {
+            StringRef chunkStr = distType.substr(13); 
+            int chunkValue;
+            if (!chunkStr.getAsInteger(10, chunkValue) && chunkValue > 0) {
+              validDistType = true;
             }
-
-            // Check third argument: must be an expression representing the size
-            Expr *thirdArg = DataDist[i + 2];
-            thirdArg->IgnoreImpCasts();
-            if (!thirdArg->getType()->isIntegerType() && !thirdArg->getType()->isDependentType()) {
-                Diag(thirdArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_size_expr);
-            }
+          }
         }
+        if (!validDistType) {
+            Diag(firstArg->getExprLoc(), diag::err_oss_fpga_invalid_datadist_type);
+        }
+
+        // Check second argument: must be a reference to the base of an array
+        Expr *secondArg = DataDist[i + 1];
+        if (!dyn_cast<DeclRefExpr>(secondArg->IgnoreImpCasts())) {
+            Diag(secondArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_array_base);
+        }
+
+        // Check third argument: must be an expression representing the size
+        Expr *thirdArg = DataDist[i + 2];
+        thirdArg->IgnoreImpCasts();
+        if (!thirdArg->getType()->isIntegerType() && !thirdArg->getType()->isDependentType()) {
+            Diag(thirdArg->getExprLoc(), diag::err_oss_fpga_data_dist_expected_size_expr);
+        }
+      }
     }
     if (DevType != OSSTaskDeclAttr::Fpga) {
         Diag(DeviceLoc, diag::err_oss_clause_incompatible_device)
             << getOmpSsClauseName(OSSC_data_dist) << "fpga";
     }
   }
-
 
 
   if (!CopyIn.empty()) {

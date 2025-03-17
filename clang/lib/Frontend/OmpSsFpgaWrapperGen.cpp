@@ -276,6 +276,7 @@ template <typename Callable> class WrapperGenerator {
   bool UsesIMP = false;
   bool UsesBlockDist = false;
   bool UsesCyclicDist = false;
+  bool UsesBlockCyclicDist = false;
   bool MemcpyWideport = false;
   bool UsesLock = false;
   bool NeedsDeps = false;
@@ -340,6 +341,7 @@ template <typename Callable> class WrapperGenerator {
 
         if (strDist->getString().equals("block")) UsesBlockDist = true;
         else if (strDist->getString().equals("cyclic")) UsesCyclicDist = true;
+        else if (strDist->getString().startswith("block-cyclic;")) UsesBlockCyclicDist = true;
       }
     }
   }
@@ -523,17 +525,28 @@ struct __mcxx_ptr_t {
     if (UsesIMP) {
       if (UsesBlockDist) {
         Output << R"(
-unsigned char calc_data_owner_block(unsigned int size, unsigned char n_nodes, int offset) {
-  unsigned int block_size = size / n_nodes;
-  unsigned int extra = size % n_nodes;
-  return (offset < (extra * (block_size + 1))) ? (offset / (block_size + 1)) : ((offset - extra) / block_size);
+void calc_data_owner_block(unsigned char &result, unsigned int size, unsigned char n_nodes, int offset) {
+    unsigned int block_size = size / n_nodes;
+    unsigned int extra = size % n_nodes;
+    result = (offset < (extra * (block_size + 1))) ? (offset / (block_size + 1)) : ((offset - extra) / block_size);
 }
 )";
       }
       if (UsesCyclicDist) {
         Output << R"(
-unsigned char calc_data_owner_cyclic(unsigned char n_nodes, int offset) {
-    return offset % n_nodes;
+void calc_data_owner_cyclic(unsigned char &result, unsigned char n_nodes, int offset) {
+    result = offset % n_nodes;
+}
+)" << "\n";
+      }
+
+      if (UsesBlockCyclicDist) {
+        Output << R"(
+void calc_data_owner_block_cyclic(unsigned char &result, unsigned int size, unsigned char n_nodes, int offset, unsigned int chunk) {
+    // At the moment we don't use size because we assume it's a multiple of the chunk
+    unsigned int cycle_size = chunk * n_nodes;  
+    unsigned int position_in_cycle = offset % cycle_size;  
+    result = position_in_cycle / chunk;  
 }
 )" << "\n";
       }
