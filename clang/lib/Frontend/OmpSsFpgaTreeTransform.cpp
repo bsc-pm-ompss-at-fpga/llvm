@@ -667,7 +667,8 @@ public:
   } 
 
   llvm::SmallVector<Stmt *, 1> createDataOwnerInfo(
-      ASTContext &Ctx, VarDecl *ownerDecl, Expr *sizeExpr, int ownerId, VarDecl *dataOwnersDecl) {
+      ASTContext &Ctx, VarDecl *ownerDecl, Expr *sizeExpr, int ownerId, 
+      VarDecl *dataOwnersDecl, const ParmVarDecl *param) {
     
     llvm::SmallVector<Stmt *, 1> stmts;
 
@@ -703,9 +704,27 @@ public:
 
     stmts.push_back(makeDeclStmt(dataOwnerInfoVarDecl));
 
+
+    QualType paramType = param->getType();
+    QualType elementType = paramType;
+
+    if (paramType->isPointerType()) {
+        elementType = paramType->getPointeeType();
+    } 
+    TypeSourceInfo *TInfo = Ctx.getTrivialTypeSourceInfo(elementType);
+
+    Expr *sizeofExpr = new (Ctx) UnaryExprOrTypeTraitExpr(
+        UETT_SizeOf, TInfo, Ctx.getSizeType(),
+        SourceLocation(), SourceLocation());
+
+    Expr *sizeCalculation = BinaryOperator::Create(
+      Ctx, sizeExpr, sizeofExpr, BinaryOperatorKind::BO_Mul,
+      sizeExpr->getType(), ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary,
+      SourceLocation(), {});
+
     stmts.push_back(BinaryOperator::Create(
         Ctx, makeAccessExpr(makeDeclRefExpr(dataOwnerInfoVarDecl), "size"),
-        sizeExpr, BinaryOperator::Opcode::BO_Assign, sizeExpr->getType(),
+        sizeCalculation, BinaryOperator::Opcode::BO_Assign, sizeExpr->getType(),
         ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}));
 
     Expr *ownerValue = makeDeclRefExpr(ownerDecl); 
@@ -1232,7 +1251,7 @@ public:
                     Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
                     DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
 
-                    stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl));        
+                    stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));        
                     
                     if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
                       task_owner_defined = true;
