@@ -509,6 +509,11 @@ struct __mcxx_ptr_t {
   template <typename V> inline __mcxx_ptr_t<T> operator-(V const val) const {
     return __mcxx_ptr_t<T>(ptr, this->val - val * sizeof(T));
   }
+  template <typename V> inline __mcxx_ptr_t<T>& operator=(__mcxx_ptr_t<V> val) {
+    this->ptr = (T*)val.ptr;
+    this->val = val.val;
+    retur *this;
+  }
   template <typename V> inline operator V() const { return (V)val; }
   T& operator[](long long int i) { return ptr[val/sizeof(T)+i]; }
 };
