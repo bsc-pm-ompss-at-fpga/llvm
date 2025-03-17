@@ -4539,18 +4539,26 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
           << getOmpSsClauseName(OSSC_affinity) << "fpga";
   }
 
+  OSSTaskDeclAttr::DeviceType NewDevType = DevType;
+
   if (Owner) {
-      if (!isa<Expr>(Owner)) {
-          // later I will create the specific error
-          // Diag(Owner->getExprLoc(), diag::err_expected_expression);
-      } 
-      else {
-          OwnerRes = Owner;
-          std::string ExprStr;
-          llvm::raw_string_ostream OS(ExprStr);
-          Owner->printPretty(OS, nullptr, PrintingPolicy(LangOptions()));
-          llvm::outs() << "Owner expression: " << OS.str() << "\n";
-      }
+    OwnerRes = Owner;
+    if (!isa<Expr>(Owner)) {
+        // later I will create the specific error
+        // Diag(Owner->getExprLoc(), diag::err_expected_expression);
+    } else {
+        // The owner is an expression, now we need to check if it's a string,
+        // and in that case, it must be "all"
+        if (auto *SL = dyn_cast<StringLiteral>(Owner)) {
+            if (SL->getString() != "all") {
+                // later I will create the specific error
+                // Diag(Owner->getExprLoc(), diag::err_expected_expression);
+            }
+            // If we have the owner("all"), we need to overwrite the device type of the 
+            // function to broadcaster
+            else NewDevType = OSSTaskDeclAttr::DeviceType::Broadcaster;
+        }
+    }
   }
 
 
@@ -4774,7 +4782,7 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
 
   auto *NewAttr = OSSTaskDeclAttr::CreateImplicit(
       Context, IfRes.get(), FinalRes.get(), CostRes.get(), PriorityRes.get(),
-      CopyDeps, Wait, DevType, OnreadyRes.get(), NumInstancesRes.get(),
+      CopyDeps, Wait, NewDevType, OnreadyRes.get(), NumInstancesRes.get(),
       OntoRes.get(), NumRepetitionsRes.get(), PeriodRes.get(),
       AffinityRes.get(), OwnerRes.get(), const_cast<Expr **>(DataDist.data()), DataDist.size(),
       const_cast<Expr **>(CopyIn.data()), CopyIn.size(),

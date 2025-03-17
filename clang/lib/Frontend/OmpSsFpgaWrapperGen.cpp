@@ -480,14 +480,16 @@ struct __data_owner_info_t {
               "copies[], int numDataOwners, __data_owner_info_t data_owners[], " 
               STR_OUTPORT_DECL ", unsigned char owner);\n";
       }
-
-      Output
-          << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
-             "instanceNum, "
-             "const ap_uint<8> numArgs, const unsigned long long int args[], "
-             "const ap_uint<8> numDeps, const unsigned long long int deps[], "
-             "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
-             "copies[], " STR_OUTPORT_DECL ");\n";
+      
+      if (!UsesIMP) { 
+        Output
+            << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
+              "instanceNum, "
+              "const ap_uint<8> numArgs, const unsigned long long int args[], "
+              "const ap_uint<8> numDeps, const unsigned long long int deps[], "
+              "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
+              "copies[], " STR_OUTPORT_DECL ");\n";
+      }
 
       Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
                 ");\n";
@@ -1175,55 +1177,56 @@ unsigned char calc_data_owner_cyclic(unsigned char n_nodes, int offset) {
         Output << "}\n";
         Output << "\n"; // blank line
       }
-    
-      Output
-          << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
-             "instanceNum, "
-             "const ap_uint<8> numArgs, const unsigned long long int args[], "
-             "const ap_uint<8> numDeps, const unsigned long long int deps[], "
-             "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
-             "copies[], " STR_OUTPORT_DECL ") {\n";
-      Output << "#pragma HLS inline\n";
-      Output << "  const ap_uint<2> destId = " STR_NEW_TASK_CODE ";\n";
-      Output << "  ap_uint<64> tmp;\n";
-      Output << "  tmp(15,8)  = numArgs;\n";
-      Output << "  tmp(23,16) = numDeps;\n";
-      Output << "  tmp(31,24) = numCopies;\n";
-      Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
-      Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", destId, 0") "\n";
-      Output << "  tmp(47,40) = instanceNum;\n";
-      Output << "  tmp(33,0)  = type(33,0);\n";
-      Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
-      Output << "  for (ap_uint<4> i = 0; i < numDeps(3,0); ++i) {\n";
-      Output << "    " STR_OUTPORT_WRITE_FUN(
-          "deps[i], destId, numArgs == 0 && numCopies == 0 && i == "
-          "numDeps-1") "\n";
-      Output << "  }\n";
-      Output << "  for (ap_uint<4> i = 0; i < numCopies(3,0); ++i) {\n";
-      Output << "    " STR_OUTPORT_WRITE_FUN(
-          "copies[i].copy_address, destId, 0") "\n";
-      Output << "    tmp(7,0) = copies[i].flags;\n";
-      Output << "    tmp(15,8) = copies[i].arg_idx;\n";
-      Output << "    tmp(63,32) = copies[i].size;\n";
-      Output << "    " STR_OUTPORT_WRITE_FUN(
-          "tmp, destId, numArgs == 0 && i == numCopies-1") "\n";
-      Output << "  }\n";
-      Output << "  for (ap_uint<4> i = 0; i < numArgs(3,0); ++i) {\n";
-      Output << "    " STR_OUTPORT_WRITE_FUN(
-          "args[i], destId, i == numArgs-1") "\n";
-      Output << "  }\n";
-      Output << "}\n";
-      Output << "\n"; // blank line
-      Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
-                ") {\n";
-      Output << "#pragma HLS inline\n";
-      Output << "  ap_wait();\n";
-      Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", " STR_TASKWAIT_CODE
-                                                      ", 1") "\n";
-      Output << "  ap_wait();\n";
-      Output << "  " STR_SPWNINPORT_READ ";\n";
-      Output << "  ap_wait();\n";
-      Output << "}\n";
+      else {
+        Output
+            << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
+              "instanceNum, "
+              "const ap_uint<8> numArgs, const unsigned long long int args[], "
+              "const ap_uint<8> numDeps, const unsigned long long int deps[], "
+              "const ap_uint<8> numCopies, const __fpga_copyinfo_t "
+              "copies[], " STR_OUTPORT_DECL ") {\n";
+        Output << "#pragma HLS inline\n";
+        Output << "  const ap_uint<2> destId = " STR_NEW_TASK_CODE ";\n";
+        Output << "  ap_uint<64> tmp;\n";
+        Output << "  tmp(15,8)  = numArgs;\n";
+        Output << "  tmp(23,16) = numDeps;\n";
+        Output << "  tmp(31,24) = numCopies;\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", destId, 0") "\n";
+        Output << "  tmp(47,40) = instanceNum;\n";
+        Output << "  tmp(33,0)  = type(33,0);\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN("tmp, destId, 0") "\n";
+        Output << "  for (ap_uint<4> i = 0; i < numDeps(3,0); ++i) {\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "deps[i], destId, numArgs == 0 && numCopies == 0 && i == "
+            "numDeps-1") "\n";
+        Output << "  }\n";
+        Output << "  for (ap_uint<4> i = 0; i < numCopies(3,0); ++i) {\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "copies[i].copy_address, destId, 0") "\n";
+        Output << "    tmp(7,0) = copies[i].flags;\n";
+        Output << "    tmp(15,8) = copies[i].arg_idx;\n";
+        Output << "    tmp(63,32) = copies[i].size;\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "tmp, destId, numArgs == 0 && i == numCopies-1") "\n";
+        Output << "  }\n";
+        Output << "  for (ap_uint<4> i = 0; i < numArgs(3,0); ++i) {\n";
+        Output << "    " STR_OUTPORT_WRITE_FUN(
+            "args[i], destId, i == numArgs-1") "\n";
+        Output << "  }\n";
+        Output << "}\n";
+        Output << "\n"; // blank line
+        Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
+                  ") {\n";
+        Output << "#pragma HLS inline\n";
+        Output << "  ap_wait();\n";
+        Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", " STR_TASKWAIT_CODE
+                                                        ", 1") "\n";
+        Output << "  ap_wait();\n";
+        Output << "  " STR_SPWNINPORT_READ ";\n";
+        Output << "  ap_wait();\n";
+        Output << "}\n";
+      }
     }
     if (UsesLock) {
       Output << "void mcxx_set_lock(" STR_INOUTPORT_DECL ") {\n";
@@ -1408,15 +1411,23 @@ public:
   }
 
   bool GenerateWrapperFile() {
-
-    // Check if fompss-imp is well-parsed
-    if (CI.getFrontendOpts().OmpSsIMP) llvm::outs() << "Using -fompss-imp flag\n";
-    else llvm::outs() << "Not using -fompss-imp flag\n";
-
     auto numInstances = getNumInstances();
 
     computeDataDistMap();
-    if (DistMap.size() > 0) UsesIMP = true;
+    if (CI.getFrontendOpts().OmpSsIMP) {
+      Expr *taskOwner = OriginalFD->getAttr<OSSTaskDeclAttr>()->getOwner();
+      if (taskOwner) {
+        if (auto *SL = dyn_cast<StringLiteral>(taskOwner)) {
+          // After the sema analysis we know that if it's a string, it must be "all"
+          UsesIMP = true;
+        }
+      }
+    }
+
+    if (!UsesIMP && !DistMap.empty()) {
+      // WARN: Specifying data distribution in a non-distributed function
+      // 
+    }
 
     if (!numInstances) {
       return false;
