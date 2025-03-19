@@ -1016,7 +1016,7 @@ struct __mcxx_ptr_t {
       Output << "  if (__command(7,0) == 2) {\n";
       Output << "    __mcxx_instrData_t tmpSetup;\n";
       Output << "    tmpSetup(63,0) = " STR_INPORT_READ ";\n";
-      Output << "    tmpSetup(79,64) =  (__command>>8)&0xFFFFFF;\n";
+      Output << "    tmpSetup(95,64) =  (__command>>8)&0xFFFFFFFF;\n";
       Output << "    tmpSetup[104] = 0;\n";
       Output << "    " STR_INSTRPORT ".write(tmpSetup);\n";
       Output << "    return;\n";
