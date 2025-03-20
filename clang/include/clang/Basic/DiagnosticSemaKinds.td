@@ -11656,13 +11656,36 @@ def err_oss_non_pod_reduction : Error<
   "non-PODs value are not allowed in reductions">;
 
 def err_oss_fpga_invalid_datadist_args : Error<
-  "Invalid arguments for data_dist">;
+  "Invalid arguments for 'data_dist': expected three arguments in the form 'data_dist(<distribution>, <array_base>, <size>)'">;
 def err_oss_fpga_invalid_datadist_type : Error<
-  "The only supported distributions are block and cyclic">;
+ "Invalid distribution type for 'data_dist': supported types are 'all', 'block', 'cyclic', and 'block-cyclic;<chunk>' (where <chunk> is a numeric value)">;
 def err_oss_fpga_data_dist_expected_array_base : Error<
-  "The second expected argument for data_dist is a reference to an array base">;
+  "Invalid second argument for data_dist: expected a reference to an array base">;
 def err_oss_fpga_data_dist_expected_size_expr : Error<
-  "The third expected argument for data_dist is an expresion representing the size">;
+  "Invalid third argument for data_dist: expected an expression representing the size">;
+
+def err_oss_fpga_invalid_owner_expr : Error<
+  "Invalid argument for owner: expected an expression representing the specific owner of a task">;
+def err_oss_fpga_invalid_owner_keyword : Error<
+  "Invalid owner value: the only supported keyword is 'all', indicating execution on all nodes">;
+
+def err_oss_fpga_missing_owner_or_relevant_datadist : Error<
+  "Task execution node is ambiguous: when using IMP, each task must have either an explicit owner or at least one data_dist applied to an array involved in a dependency">;
+
+def err_oss_fpga_datadist_alias_not_supported : Error<
+  "Passing an expression that refers to a distributed array under a different name due to reassignment is not supported">;
+
+def warn_oss_fpga_data_dist_ignored : Warning<
+  "'data_dist' clause specified but will be ignored because '-fompss-imp' is not enabled. "
+  "Consider adding '-fompss-imp' to enable IMP support">;
+def warn_oss_fpga_owner_ignored : Warning<
+  "'owner' clause specified but will be ignored because '-fompss-imp' is not enabled. "
+  "Consider adding '-fompss-imp' to enable IMP support">;
+def warn_oss_fpga_no_distributed_tasks : Warning<
+  "'-fompss-imp' is enabled, but no tasks are distributed using 'owner(\"all\")'. "
+  "Consider adding 'owner(\"all\")' to at least one task to leverage distributed execution">;
+  
+
 
 def err_oss_loop_cannot_use_stmt : Error<
   "'%0' statement cannot be used in OmpSs-2 for loop">;

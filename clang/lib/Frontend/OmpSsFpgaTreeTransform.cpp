@@ -764,10 +764,7 @@ public:
             Ctx, arraySubscript, ownerInfoRef,   
             BinaryOperator::Opcode::BO_Assign, elementType,    
             ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},{}));
-    } else {
-        llvm::errs() << "Error: dataOwnersDecl is null.\n";
     }
-
     return stmts;
 }
 
@@ -1105,7 +1102,7 @@ public:
         UpdateParamOwner(attr->ins(), LocalmemInfo::IN);
       }
 
-      bool task_owner_defined = false;
+      bool task_owner_defined = attr->getOwner() != nullptr;
 
       for (const ParmVarDecl *param : sortedParams) {
         auto dependIt = dependencyMap.find(param);
@@ -1183,6 +1180,20 @@ public:
                     ExprObjectKind::OK_Ordinary, {}, {}),
                   BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
                   ExprObjectKind::OK_Ordinary, {}, {}));
+
+
+            // Possible specific task owner
+            if (attr->getOwner() != nullptr) {
+              QualType typeTaskOwner = Ctx.UnsignedCharTy;
+              taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+              stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+              Expr* ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
+              stmts.push_back(BinaryOperator::Create(
+                  Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
+                  typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+              ));
+            }
 
             // Specific code for data owner info
             if (depId < NumDataOwners) {
@@ -1304,25 +1315,14 @@ public:
                           typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
                       ));
                     }
-                    else if (attr->getOwner() != nullptr && !task_owner_defined) {
-                      task_owner_defined = true;
-                      QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                      taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
-                      stmts.push_back(makeDeclStmt(taskOwnerDecl));
-
-                      Expr* ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
-                      stmts.push_back(BinaryOperator::Create(
-                          Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
-                          typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                      ));
-                    }
                   } 
-                  else llvm::errs() << "Error: Dist arr not found\n";
                 }
                 else {
-                    llvm::errs() << "Error: Dist arr not found\n";
+                  DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+                  SourceLocation Loc = callExpr->getBeginLoc();
+                  Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist);
                 }
-              } 
+              }
             }
             ++depId;
           }
@@ -1373,7 +1373,14 @@ public:
 
     arguments.push_back(makeDeclRefExpr(OutPort));
 
-    if (IMP) arguments.push_back(makeDeclRefExpr(taskOwnerDecl));
+    if (IMP) {
+      if (taskOwnerDecl == nullptr) {
+        DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+        SourceLocation Loc = callExpr->getBeginLoc();
+        Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist);
+      }
+      else arguments.push_back(makeDeclRefExpr(taskOwnerDecl));
+    }
 
     stmts.push_back(
         maybeMakeInstrumentedApiCall(makeCallToFunc(McxxTaskCreate, arguments),

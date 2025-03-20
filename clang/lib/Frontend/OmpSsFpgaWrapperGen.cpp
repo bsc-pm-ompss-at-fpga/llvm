@@ -1432,6 +1432,7 @@ public:
     auto numInstances = getNumInstances();
 
     computeDataDistMap();
+
     if (CI.getFrontendOpts().OmpSsIMP) {
       Expr *taskOwner = OriginalFD->getAttr<OSSTaskDeclAttr>()->getOwner();
       if (taskOwner) {
@@ -1441,10 +1442,11 @@ public:
         }
       }
     }
-
-    if (!UsesIMP && !DistMap.empty()) {
-      // WARN: Specifying data distribution in a non-distributed function
-      // 
+    else if (!DistMap.empty()) {
+      Diag(OriginalFD->getLocation(), diag::warn_oss_fpga_data_dist_ignored);
+    }
+    else if (OriginalFD->getAttr<OSSTaskDeclAttr>()->getOwner()) {
+      Diag(OriginalFD->getLocation(), diag::warn_oss_fpga_owner_ignored);
     }
 
     if (!numInstances) {
@@ -1555,6 +1557,22 @@ void FPGAWrapperGen::ActOnOmpSsFpgaGenerateWrapperCodeFiles(
 
   std::ofstream outputJson{*realPathOrNone + "/extracted.json.part"};
   llvm::raw_os_ostream outputJsonFile(outputJson);
+
+  if (CI.getFrontendOpts().OmpSsIMP) {
+    bool atLeastOneDistributedTask = false;
+    for (auto *decl : Ctx.ompssFpgaDecls) {
+      auto *FD = dyn_cast<FunctionDecl>(decl);
+      Expr *taskOwner = FD->getAttr<OSSTaskDeclAttr>()->getOwner();
+      if (taskOwner) {
+        if (auto *SL = dyn_cast<StringLiteral>(taskOwner)) atLeastOneDistributedTask = true;
+      }
+    }
+    if (!atLeastOneDistributedTask) {
+      SourceLocation Loc = CI.getSourceManager().getLocForStartOfFile(CI.getSourceManager().getMainFileID());
+      diag(Loc, diag::warn_oss_fpga_no_distributed_tasks);
+    }
+  }
+
   for (auto *decl : Ctx.ompssFpgaDecls) {
     auto *FD = dyn_cast<FunctionDecl>(decl);
 

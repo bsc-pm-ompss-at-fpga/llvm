@@ -4544,20 +4544,19 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
   if (Owner) {
     OwnerRes = Owner;
     if (!isa<Expr>(Owner)) {
-        // later I will create the specific error
-        // Diag(Owner->getExprLoc(), diag::err_expected_expression);
-    } else {
-        // The owner is an expression, now we need to check if it's a string,
-        // and in that case, it must be "all"
-        if (auto *SL = dyn_cast<StringLiteral>(Owner)) {
-            if (SL->getString() != "all") {
-                // later I will create the specific error
-                // Diag(Owner->getExprLoc(), diag::err_expected_expression);
-            }
-            // If we have the owner("all"), we need to overwrite the device type of the 
-            // function to broadcaster
-            else NewDevType = OSSTaskDeclAttr::DeviceType::Broadcaster;
-        }
+      Diag(Owner->getExprLoc(), diag::err_oss_fpga_invalid_owner_expr);
+    } 
+    else {
+      // The owner is an expression, now we need to check if it's a string,
+      // and in that case, it must be "all"
+      if (auto *SL = dyn_cast<StringLiteral>(Owner)) {
+          if (SL->getString() != "all") {
+            Diag(Owner->getExprLoc(), diag::err_oss_fpga_invalid_owner_keyword);
+          }
+          // If we have the owner("all"), we need to overwrite the device type of the 
+          // function to broadcaster
+          else NewDevType = OSSTaskDeclAttr::DeviceType::Broadcaster;
+      }
     }
   }
 
