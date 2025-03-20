@@ -525,28 +525,28 @@ struct __mcxx_ptr_t {
     if (UsesIMP) {
       if (UsesBlockDist) {
         Output << R"(
-void calc_data_owner_block(unsigned char &result, unsigned int size, unsigned char n_nodes, int offset) {
-    unsigned int block_size = size / n_nodes;
-    unsigned int extra = size % n_nodes;
-    result = (offset < (extra * (block_size + 1))) ? (offset / (block_size + 1)) : ((offset - extra) / block_size);
+unsigned char calc_data_owner_block(unsigned int size, unsigned char n_nodes, int offset) {
+  unsigned int block_size = size / n_nodes;
+  unsigned int extra = size % n_nodes;
+  return (offset < (extra * (block_size + 1))) ? (offset / (block_size + 1)) : ((offset - extra) / block_size);
 }
 )";
       }
       if (UsesCyclicDist) {
         Output << R"(
-void calc_data_owner_cyclic(unsigned char &result, unsigned char n_nodes, int offset) {
-    result = offset % n_nodes;
+unsigned char calc_data_owner_cyclic(unsigned char n_nodes, int offset) {
+    return offset % n_nodes;
 }
 )" << "\n";
       }
 
       if (UsesBlockCyclicDist) {
         Output << R"(
-void calc_data_owner_block_cyclic(unsigned char &result, unsigned int size, unsigned char n_nodes, int offset, unsigned int chunk) {
+unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_nodes, int offset, unsigned int chunk) {
     // At the moment we don't use size because we assume it's a multiple of the chunk
     unsigned int cycle_size = chunk * n_nodes;  
     unsigned int position_in_cycle = offset % cycle_size;  
-    result = position_in_cycle / chunk;  
+    return position_in_cycle / chunk;  
 }
 )" << "\n";
       }

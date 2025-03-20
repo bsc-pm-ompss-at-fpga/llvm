@@ -376,21 +376,21 @@ public:
                              DeclarationName(McxxInstrumentEventIdentifier),
                              McxxInstrumentEventType, nullptr, SC_None);
 
-    CalcOwnerBlockType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
+    CalcOwnerBlockType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
     CalcOwnerBlockIdentifier = &IdentifierTable.get("calc_data_owner_block");
     CalcOwnerBlockFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
                               DeclarationName(CalcOwnerBlockIdentifier),
                               CalcOwnerBlockType, nullptr, SC_None);
 
-    CalcOwnerCyclicType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
+    CalcOwnerCyclicType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
     CalcOwnerCyclicIdentifier = &IdentifierTable.get("calc_data_owner_cyclic");
     CalcOwnerCyclicFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
                               DeclarationName(CalcOwnerCyclicIdentifier),
                               CalcOwnerCyclicType, nullptr, SC_None);
 
-    CalcOwnerBlockCyclicType = Ctx.getFunctionType(Ctx.VoidTy, {}, {});
+    CalcOwnerBlockCyclicType = Ctx.getFunctionType(Ctx.getConstType(Ctx.UnsignedCharTy), {}, {});
     CalcOwnerBlockCyclicIdentifier = &IdentifierTable.get("calc_data_owner_block_cyclic");
     CalcOwnerBlockCyclicFunc =
         FunctionDecl::Create(Ctx, Ctx.getTranslationUnitDecl(), {}, {},
@@ -1229,9 +1229,6 @@ public:
                       ));
                     }
                     else {
-                      //unsigned char data_owner_{depId} by reference (only void functions supported in FPGAs)
-                      ownerArgs.push_back(makeDeclRefExpr(ownerDecl));
-
                       // Size of the array
                       const Expr *sizeExpr = dataDistEntry->getValue().second;
                       Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
@@ -1292,7 +1289,11 @@ public:
                         calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
                       }
 
-                      stmts.push_back(calcOwnerCall);
+                      stmts.push_back(BinaryOperator::Create(
+                          Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
+                          BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
+                          ExprObjectKind::OK_Ordinary, {}, {}
+                      ));
                     }
 
                     // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
