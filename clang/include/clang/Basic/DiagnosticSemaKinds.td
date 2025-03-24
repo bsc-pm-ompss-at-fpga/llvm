@@ -11655,6 +11655,8 @@ def err_oss_non_pod_parm_task : Error<
 def err_oss_non_pod_reduction : Error<
   "non-PODs value are not allowed in reductions">;
 
+// OmpSs + IMP errors and warnings
+
 def err_oss_fpga_invalid_datadist_args : Error<
   "Invalid arguments for 'data_dist': expected three arguments in the form 'data_dist(<distribution>, <array_base>, <size>)'">;
 def err_oss_fpga_invalid_datadist_type : Error<
@@ -11663,18 +11665,17 @@ def err_oss_fpga_data_dist_expected_array_base : Error<
   "Invalid second argument for data_dist: expected a reference to an array base">;
 def err_oss_fpga_data_dist_expected_size_expr : Error<
   "Invalid third argument for data_dist: expected an expression representing the size">;
-
 def err_oss_fpga_invalid_owner_expr : Error<
   "Invalid argument for owner: expected an expression representing the specific owner of a task">;
 def err_oss_fpga_invalid_owner_keyword : Error<
   "Invalid owner value: the only supported keyword is 'all', indicating execution on all nodes">;
-
-def err_oss_fpga_missing_owner_or_relevant_datadist : Error<
-  "Task execution node is ambiguous: when using IMP, each task must have either an explicit owner or at least one data_dist applied to an array involved in a dependency">;
-
+def err_oss_fpga_missing_owner_or_relevant_datadist : Warning<
+  "Task '%0' has no calculable owner: all nodes will execute it. Consider setting an explicit owner" 
+  " or distributing an array with a dependency to infer ownership if you want to avoid execution on all nodes.">;
+def err_oss_fpga_nested_all_owner : Warning<
+  "Task '%0' is executed under 'owner(\"all\")' but also specifies 'owner(\"all\")': all nodes will execute it.">;
 def err_oss_fpga_datadist_alias_not_supported : Error<
   "Passing an expression that refers to a distributed array under a different name due to reassignment is not supported">;
-
 def warn_oss_fpga_data_dist_ignored : Warning<
   "'data_dist' clause specified but will be ignored because '-fompss-imp' is not enabled. "
   "Consider adding '-fompss-imp' to enable IMP support">;

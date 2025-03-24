@@ -1102,7 +1102,7 @@ public:
         UpdateParamOwner(attr->ins(), LocalmemInfo::IN);
       }
 
-      bool task_owner_defined = attr->getOwner() != nullptr;
+      bool task_owner_defined = false;
 
       for (const ParmVarDecl *param : sortedParams) {
         auto dependIt = dependencyMap.find(param);
@@ -1183,12 +1183,37 @@ public:
 
 
             // Possible specific task owner
-            if (attr->getOwner() != nullptr) {
+            if (attr->getOwner() != nullptr && !task_owner_defined) {
+              
+              task_owner_defined = true;
               QualType typeTaskOwner = Ctx.UnsignedCharTy;
               taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
               stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
-              Expr* ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
+              Expr* ownerExpr = nullptr;
+
+              if (!isa<StringLiteral>(attr->getOwner())) {
+                ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
+              }
+              else {
+                VarDecl *ompifRankDecl = VarDecl::Create(
+                    Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                    SourceLocation(), &Ctx.Idents.get("__ompif_rank"),
+                    OmpIfRankType, nullptr, SC_None                      
+                  );
+
+                ownerExpr = DeclRefExpr::Create(
+                    Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                    ompifRankDecl, false, SourceLocation(),         
+                    ompifRankDecl->getType(), VK_LValue                
+                  );
+                
+                DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+                SourceLocation Loc = callExpr->getBeginLoc();
+                const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
+                Diags.Report(Loc, diag::err_oss_fpga_nested_all_owner) << funcName;
+              }
+
               stmts.push_back(BinaryOperator::Create(
                   Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
                   typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
@@ -1319,9 +1344,10 @@ public:
                   } 
                 }
                 else {
-                  DiagnosticsEngine &Diags = Ctx.getDiagnostics();
-                  SourceLocation Loc = callExpr->getBeginLoc();
-                  Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist);
+                    DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+                    SourceLocation Loc = callExpr->getBeginLoc();
+                    const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
+                    Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist) << funcName;
                 }
               }
             }
@@ -1376,9 +1402,31 @@ public:
 
     if (IMP) {
       if (taskOwnerDecl == nullptr) {
+
+        taskOwnerDecl = makeVarDecl(Ctx.UnsignedCharTy  , "task_owner");
+        stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+        VarDecl *ompifRankDecl = VarDecl::Create(
+          Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+          SourceLocation(), &Ctx.Idents.get("__ompif_rank"),
+          OmpIfRankType, nullptr, SC_None                      
+        );
+
+        Expr* ownerExpr = DeclRefExpr::Create(
+          Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+          ompifRankDecl, false, SourceLocation(),         
+          ompifRankDecl->getType(), VK_LValue                
+        );
+
+        stmts.push_back(BinaryOperator::Create(
+            Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
+            Ctx.UnsignedCharTy, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+        ));
+
         DiagnosticsEngine &Diags = Ctx.getDiagnostics();
         SourceLocation Loc = callExpr->getBeginLoc();
-        Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist);
+        const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
+        Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist) << funcName;
       }
       else arguments.push_back(makeDeclRefExpr(taskOwnerDecl));
     }
