@@ -514,7 +514,7 @@ struct __mcxx_ptr_t {
   template <typename V> inline __mcxx_ptr_t<T>& operator=(__mcxx_ptr_t<V> val) {
     this->ptr = (T*)val.ptr;
     this->val = val.val;
-    retur *this;
+    return *this;
   }
   template <typename V> inline operator V() const { return (V)val; }
   T& operator[](long long int i) { return ptr[val/sizeof(T)+i]; }
