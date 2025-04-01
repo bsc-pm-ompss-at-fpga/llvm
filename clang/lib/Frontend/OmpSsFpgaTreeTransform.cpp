@@ -944,44 +944,47 @@ public:
             auto *ptrVar = makeVarDecl(
                 type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
 
-            auto *valExpression = BinaryOperator::Create(
-                Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
-                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-
             stmts.push_back(makeDeclStmt(ptrVar));
 
             // The following code is the (possible) creation of the operation 
             // that corresponds to the possible offset of the dependency
-            Expr *baseExpr = arg;
-            Expr *debExpr = arg;
-
-            while (auto *castExpr = dyn_cast<ImplicitCastExpr>(debExpr)) {
-              debExpr = castExpr->getSubExpr();
-            }
-      
-            while (auto *parenExpr = dyn_cast<ParenExpr>(debExpr)) {
-              debExpr = parenExpr->getSubExpr();
-            }
+            Expr *finalDependencyExpr = arg;
 
             if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
-                Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                Expr *dependencyExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
                 // References to task's arguments should be replaced by the arguments of the call
-                lowerBoundExpr = ReplaceParamsInExpr(lowerBoundExpr, paramToArgMap);
+                dependencyExpr = ReplaceParamsInExpr(dependencyExpr, paramToArgMap);
                 Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), arg);
 
-                baseExpr = BinaryOperator::Create(
+                finalDependencyExpr = BinaryOperator::Create(
                     Ctx, wrappedArg, 
-                    lowerBoundExpr,  
+                    dependencyExpr,  
                     BinaryOperatorKind::BO_Add, type,
                     ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
             } 
           
             stmts.push_back(BinaryOperator::Create(
-                Ctx, makeDeclRefExpr(ptrVar), baseExpr, BinaryOperatorKind::BO_Assign,
+                Ctx, makeDeclRefExpr(ptrVar), finalDependencyExpr, BinaryOperatorKind::BO_Assign,
                 type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
                 {}));
+
+            
+            auto *valExpression = BinaryOperator::Create(
+                Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+                makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
+            stmts.push_back(BinaryOperator::Create(
+            Ctx,
+            new (Ctx) ArraySubscriptExpr(
+                makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+                QualType(depsDecl->getType()->getPointeeOrArrayElementType(), 0),
+                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+              valExpression,
+              BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
+              ExprObjectKind::OK_Ordinary, {}, {}));
+            
             stmts.push_back(BinaryOperator::Create(
                 Ctx,
                 new (Ctx) ArraySubscriptExpr(
@@ -989,13 +992,10 @@ public:
                     QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
                             0),
                     ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-                BinaryOperator::Create(
-                    Ctx, flagExpression,
-                    makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                    BinaryOperatorKind::BO_Or, type, ExprValueKind::VK_LValue,
-                    ExprObjectKind::OK_Ordinary, {}, {}),
-                BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
-                ExprObjectKind::OK_Ordinary, {}, {}));
+                  flagExpression,
+                  BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
+                  ExprObjectKind::OK_Ordinary, {}, {}));
+
             ++depId;
           }
         }
@@ -1136,50 +1136,56 @@ public:
             auto *ptrVar = makeVarDecl(
                   type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
 
-            auto *valExpression = BinaryOperator::Create(
-                  Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                  makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
-                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-
             stmts.push_back(makeDeclStmt(ptrVar));
 
             // The following code is the (possible) creation of the operation 
             // that corresponds to the possible offset of the dependency
-            Expr *baseExpr = nullptr;
+            Expr *finalDependencyExpr = paramToArgMap[param];
 
             if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
-                Expr *lowerBoundExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                Expr *dependencyExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
                 // References to task's arguments should be replaced by the arguments of the call
-                lowerBoundExpr = ReplaceParamsInExpr(lowerBoundExpr, paramToArgMap);
+                dependencyExpr = ReplaceParamsInExpr(dependencyExpr, paramToArgMap);
                 Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param]);
 
-                baseExpr = BinaryOperator::Create(
+                finalDependencyExpr = BinaryOperator::Create(
                     Ctx, wrappedArg, 
-                    lowerBoundExpr,  
+                    dependencyExpr,  
                     BinaryOperatorKind::BO_Add, type,
                     ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
             } 
             
             stmts.push_back(BinaryOperator::Create(
-                Ctx, makeDeclRefExpr(ptrVar), baseExpr, BinaryOperatorKind::BO_Assign,
+                Ctx, makeDeclRefExpr(ptrVar), finalDependencyExpr, BinaryOperatorKind::BO_Assign,
                 type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
                 {}));
 
+            auto *valExpression = BinaryOperator::Create(
+                Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+                makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+                ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+                
             stmts.push_back(BinaryOperator::Create(
-                Ctx,
-                new (Ctx) ArraySubscriptExpr(
-                    makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
-                    QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
-                            0),
-                    ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-                BinaryOperator::Create(
-                    Ctx, flagExpression,
-                    makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                    BinaryOperatorKind::BO_Or, type, ExprValueKind::VK_LValue,
-                    ExprObjectKind::OK_Ordinary, {}, {}),
-                  BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
-                  ExprObjectKind::OK_Ordinary, {}, {}));
+              Ctx,
+              new (Ctx) ArraySubscriptExpr(
+                  makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+                  QualType(depsDecl->getType()->getPointeeOrArrayElementType(), 0),
+                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+                valExpression,
+                BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
+                ExprObjectKind::OK_Ordinary, {}, {}));
+            
+            stmts.push_back(BinaryOperator::Create(
+              Ctx,
+              new (Ctx) ArraySubscriptExpr(
+                  makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+                  QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
+                          0),
+                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+                flagExpression,
+                BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
+                ExprObjectKind::OK_Ordinary, {}, {}));
 
 
             // Possible specific task owner

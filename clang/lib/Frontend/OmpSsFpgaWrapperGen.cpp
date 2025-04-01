@@ -1565,7 +1565,7 @@ void FPGAWrapperGen::ActOnOmpSsFpgaGenerateWrapperCodeFiles(
       auto *FD = dyn_cast<FunctionDecl>(decl);
       Expr *taskOwner = FD->getAttr<OSSTaskDeclAttr>()->getOwner();
       if (taskOwner) {
-        if (auto *SL = dyn_cast<StringLiteral>(taskOwner)) atLeastOneDistributedTask = true;
+        if (dyn_cast<StringLiteral>(taskOwner)) atLeastOneDistributedTask = true;
       }
     }
     if (!atLeastOneDistributedTask) {
