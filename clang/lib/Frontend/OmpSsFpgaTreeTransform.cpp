@@ -1355,6 +1355,7 @@ public:
                       ownerArgs.push_back(finalOffset);
 
                       ownerArgs.push_back(const_cast<Expr*>(dataDistEntry->getValue().first));
+
                       
                       Expr *calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
                       
@@ -2056,14 +2057,12 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
         CreatesTasks = true;
         propagatePort(WrapperPort::OMPIF_RANK);
         propagatePort(WrapperPort::OMPIF_SIZE);
-        return true;
       }
       else {
         if (auto *SL = dyn_cast<StringLiteral>(attr->getOwner()); !SL) {
           CreatesTasks = true;
           propagatePort(WrapperPort::OMPIF_RANK);
           propagatePort(WrapperPort::OMPIF_SIZE);
-          return true;
         }
       }
     }
