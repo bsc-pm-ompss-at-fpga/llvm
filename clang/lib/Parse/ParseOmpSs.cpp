@@ -1125,6 +1125,7 @@ OSSClause *Parser::ParseOmpSsClause(OmpSsDirectiveKind DKind,
     Clause = ParseOmpSsSingleExprClause(CKind, WrongDirective);
     break;
   case OSSC_data_dist:
+  case OSSC_owner:
   case OSSC_copy_deps:
   case OSSC_wait:
   case OSSC_update:
