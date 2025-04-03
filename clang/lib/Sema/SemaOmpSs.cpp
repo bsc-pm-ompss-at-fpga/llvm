@@ -4582,14 +4582,17 @@ Sema::DeclGroupPtrTy Sema::ActOnOmpSsDeclareTaskDirective(
           if (distType == "block" || distType == "cyclic" || distType == "all") {
             validDistType = true;
           } 
-          else if (distType.startswith("block-cyclic;")) {
-            StringRef chunkStr = distType.substr(13); 
-            int chunkValue;
-            if (!chunkStr.getAsInteger(10, chunkValue) && chunkValue > 0) {
-              validDistType = true;
-            }
-          }
         }
+        else {
+          Expr *chunkExpr = firstArg;
+          llvm::APSInt Result;
+          auto ChunkRes = VerifyIntegerConstantExpression(chunkExpr, &Result, AllowFold);
+          if (!ChunkRes.isUsable() || Result < 1) {
+            Diag(chunkExpr->getExprLoc(), diag::err_oss_fpga_invalid_chunk_size);
+          }
+          else validDistType = true;
+        }
+
         if (!validDistType) {
             Diag(firstArg->getExprLoc(), diag::err_oss_fpga_invalid_datadist_type);
         }

@@ -341,7 +341,11 @@ template <typename Callable> class WrapperGenerator {
 
         if (strDist->getString().equals("block")) UsesBlockDist = true;
         else if (strDist->getString().equals("cyclic")) UsesCyclicDist = true;
-        else if (strDist->getString().startswith("block-cyclic;")) UsesBlockCyclicDist = true;
+      }
+      else if (declRef && size) {
+        Expr *chunkExpr = firstArg;
+        DistMap[declRef->getDecl()->getName()] = {chunkExpr, size};
+        UsesBlockCyclicDist = true;
       }
     }
   }

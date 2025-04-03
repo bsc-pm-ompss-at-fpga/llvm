@@ -1250,22 +1250,76 @@ public:
 
                 if (ref) {
                   if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
+
                     auto dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
 
-                    if (dataDistEntry->getValue().first->getString().equals("all")) {
-                      Expr *value255 = makeIntegerLiteral(255);
-                      stmts.push_back(BinaryOperator::Create(
-                          Ctx, makeDeclRefExpr(ownerDecl), value255, BinaryOperatorKind::BO_Assign,
-                          typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                      ));
+                    auto *firstExpr = dataDistEntry->getValue().first;
+                    if (auto *strDist = dyn_cast<StringLiteral>(firstExpr)) {
+                      if (strDist->getString().equals("all")) {
+                        Expr *value255 = makeIntegerLiteral(255);
+                        stmts.push_back(BinaryOperator::Create(
+                            Ctx, makeDeclRefExpr(ownerDecl), value255, BinaryOperatorKind::BO_Assign,
+                            typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                        ));
+                      }
+                      else {
+                        const Expr *sizeExpr = dataDistEntry->getValue().second;
+                        Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                        if (!strDist->getString().equals("cyclic")) {
+                          ownerArgs.push_back(sizeExprNonConst);
+                        }
+
+                        // Number of nodes (__ompif_size)
+                        QualType ompifSizeType = Ctx.UnsignedCharTy; 
+                        VarDecl *ompifSizeDecl = VarDecl::Create(
+                            Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                            SourceLocation(), &Ctx.Idents.get("__ompif_size"),
+                            ompifSizeType, nullptr, SC_None                      
+                        );
+
+                        Expr *ompifSizeRef = DeclRefExpr::Create(
+                          Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                          ompifSizeDecl, false, SourceLocation(),         
+                          ompifSizeDecl->getType(), VK_LValue                
+                        );
+                        ownerArgs.push_back(ompifSizeRef);
+
+                        // Offset
+                        Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                        offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                        
+                        Expr *argumentOffset = BinaryOperator::Create(
+                            Ctx, paramToArgMap[param], declRef,              
+                            BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
+                        Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
+
+                        Expr *finalOffset = BinaryOperator::Create(
+                            Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
+                            offset->getType(), ExprValueKind::VK_LValue, 
+                            ExprObjectKind::OK_Ordinary, {}, {});
+
+                        ownerArgs.push_back(finalOffset);
+
+                        Expr *calcOwnerCall = nullptr;
+                        if (strDist->getString().equals("block")) {
+                          calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
+                        }
+                        else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+
+                        stmts.push_back(BinaryOperator::Create(
+                          Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
+                          BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
+                          ExprObjectKind::OK_Ordinary, {}, {}
+                        ));
+                      }
                     }
                     else {
                       // Size of the array
                       const Expr *sizeExpr = dataDistEntry->getValue().second;
                       Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
-                      if (!dataDistEntry->getValue().first->getString().equals("cyclic")) {
-                        ownerArgs.push_back(sizeExprNonConst);
-                      }
+                      ownerArgs.push_back(sizeExprNonConst);
                       
                       // Number of nodes (__ompif_size)
                       QualType ompifSizeType = Ctx.UnsignedCharTy; 
@@ -1300,26 +1354,10 @@ public:
 
                       ownerArgs.push_back(finalOffset);
 
-                      Expr *calcOwnerCall = nullptr;
-                      if (dataDistEntry->getValue().first->getString().equals("block")) {
-                        calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
-                      }            
-                      else if (dataDistEntry->getValue().first->getString().equals("cyclic")) {
-                        calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
-                      }
-                      else {
-                        // Chunk argument
-                        StringRef chunkStr = dataDistEntry->getValue().first->getString().substr(13);
-                        unsigned int chunkValue;
-                        chunkStr.getAsInteger(10, chunkValue); 
-
-                        IntegerLiteral *chunkLiteral = IntegerLiteral::Create(
-                            Ctx, llvm::APInt(64, chunkValue), Ctx.UnsignedIntTy, SourceLocation());
-
-                        ownerArgs.push_back(chunkLiteral);
-                        calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
-                      }
-
+                      ownerArgs.push_back(const_cast<Expr*>(dataDistEntry->getValue().first));
+                      
+                      Expr *calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
+                      
                       stmts.push_back(BinaryOperator::Create(
                           Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
                           BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,

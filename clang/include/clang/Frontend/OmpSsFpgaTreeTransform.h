@@ -62,9 +62,8 @@ enum class WrapperPort {
 using WrapperPortMap =
     llvm::SmallMapVector<const Decl *,
                          std::array<bool, size_t(WrapperPort::NUM_PORTS)>, 16>;
-
 using DataDistMap = 
-    llvm::StringMap<std::pair<const clang::StringLiteral*, const clang::Expr*>>;
+    llvm::StringMap<std::pair<const clang::Expr*, const clang::Expr*>>;
 
 
 struct LocalmemInfo {

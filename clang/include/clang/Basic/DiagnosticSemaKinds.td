@@ -11660,7 +11660,9 @@ def err_oss_non_pod_reduction : Error<
 def err_oss_fpga_invalid_datadist_args : Error<
   "Invalid arguments for 'data_dist': expected three arguments in the form 'data_dist(<distribution>, <array_base>, <size>)'">;
 def err_oss_fpga_invalid_datadist_type : Error<
- "Invalid distribution type for 'data_dist': supported types are 'all', 'block', 'cyclic', and 'block-cyclic;<chunk>' (where <chunk> is a numeric value)">;
+  "Invalid distribution type for 'data_dist': supported types are 'all', 'block', 'cyclic', and a constant integer expression representing the chunk size of a block-cyclic distribution">;
+def err_oss_fpga_invalid_chunk_size : Error<
+  "Expected a constant positive integer expression for the chunk size in a block-cyclic distribution">;
 def err_oss_fpga_data_dist_expected_array_base : Error<
   "Invalid second argument for data_dist: expected a reference to an array base">;
 def err_oss_fpga_data_dist_expected_size_expr : Error<
