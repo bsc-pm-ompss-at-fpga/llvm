@@ -1503,7 +1503,7 @@ public:
     OutputJson << "    \"periodic\" : false,\n";
     OutputJson << "    \"lock\" : " << (UsesLock ? "true" : "false") << ",\n";
     OutputJson << "    \"deps\" : " << (NeedsDeps ? "true" : "false") << ",\n";
-    OutputJson << "    \"ompif\" : " << (UsesOmpif ? "true" : "false") << ",\n";
+    OutputJson << "    \"ompif\" : " << (UsesOmpif | UsesIMP ? "true" : "false") << ",\n";
     OutputJson << "    \"imp\" : " << (UsesIMP ? "true" : "false") << "\n";
     OutputJson << "},\n";
   }

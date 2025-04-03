@@ -2009,6 +2009,29 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
   if (!visited.insert(n).second) {
       return true;
   }
+
+  if (auto *funcDecl = dyn_cast<FunctionDecl>(sym)) {
+    if (funcDecl && funcDecl->hasAttr<OSSTaskDeclAttr>()) {
+      auto *attr = funcDecl->getAttr<OSSTaskDeclAttr>();
+
+      if (attr->getOwner() == nullptr) {
+        CreatesTasks = true;
+        propagatePort(WrapperPort::OMPIF_RANK);
+        propagatePort(WrapperPort::OMPIF_SIZE);
+        return true;
+      }
+      else {
+        if (auto *SL = dyn_cast<StringLiteral>(attr->getOwner()); !SL) {
+          CreatesTasks = true;
+          propagatePort(WrapperPort::OMPIF_RANK);
+          propagatePort(WrapperPort::OMPIF_SIZE);
+          return true;
+        }
+      }
+    }
+  }
+
+
   if (const NamedDecl *symNamed = dyn_cast<NamedDecl>(sym); symNamed) {
     auto symName = symNamed->getName();
 
