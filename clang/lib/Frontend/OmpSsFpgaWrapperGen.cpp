@@ -515,6 +515,9 @@ struct __mcxx_ptr_t {
   template <typename V> inline __mcxx_ptr_t<T> operator-(V const val) const {
     return __mcxx_ptr_t<T>(ptr, this->val - val * sizeof(T));
   }
+  inline long long operator-(const __mcxx_ptr_t<T>& other) const {
+    return (long long)((this->val - other.val) / sizeof(T));
+  }
   template <typename V> inline __mcxx_ptr_t<T>& operator=(__mcxx_ptr_t<V> val) {
     this->ptr = (T*)val.ptr;
     this->val = val.val;
@@ -747,7 +750,7 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
                                         " mcxx_" + param->getNameAsString());
       }
     }
-    if (UsesOmpif) {
+    if (UsesOmpif || UsesIMP) {
       Output << ", unsigned char ompif_rank, unsigned char ompif_size";
     }
     if (CI.getFrontendOpts().OmpSsFpgaInstrumentation) {
@@ -761,7 +764,7 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
     if (CreatesTasks) {
       Output << "#pragma HLS interface axis port=" STR_SPWNINPORT "\n";
     }
-    if (UsesOmpif) {
+    if (UsesOmpif | UsesIMP) {
       Output << "#pragma HLS interface ap_stable port=ompif_rank\n";
       Output << "#pragma HLS interface ap_stable port=ompif_size\n";
     }
