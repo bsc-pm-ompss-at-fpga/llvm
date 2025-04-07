@@ -551,9 +551,7 @@ unsigned char calc_data_owner_cyclic(unsigned char n_nodes, int offset) {
         Output << R"(
 unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_nodes, int offset, unsigned int chunk) {
     // At the moment we don't use size because we assume it's a multiple of the chunk
-    unsigned int cycle_size = chunk * n_nodes;  
-    unsigned int position_in_cycle = offset % cycle_size;  
-    return position_in_cycle / chunk;  
+    return (offset/chunk)%n_nodes;
 }
 )" << "\n";
       }
