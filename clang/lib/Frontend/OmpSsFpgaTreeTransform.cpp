@@ -1985,7 +1985,12 @@ uint64_t GenOnto(ASTContext &Ctx, FunctionDecl *FD) {
   if (taskAttr->getDevice() == OSSTaskDeclAttr::Fpga) {
     // FPGA flag
     type |= 0x100000000;
-  } else {
+  }
+  else if (taskAttr->getDevice() == OSSTaskDeclAttr::Broadcaster) {
+    // FPGA flag
+    type |= 0x100000000;
+  }
+  else {
     // SMP flag
     type |= 0x200000000;
   }
