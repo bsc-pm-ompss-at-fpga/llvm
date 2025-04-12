@@ -1107,7 +1107,7 @@ public:
       for (const ParmVarDecl *param : sortedParams) {
         auto dependIt = dependencyMap.find(param);
         if (dependIt != dependencyMap.end()) {
-          
+          needsDeps = true;
           std::vector<std::pair<const Expr *, LocalmemInfo::Dir>> sortedDeps(dependIt->second.begin(), dependIt->second.end());
 
           // This stable sort is necessary for the possible inference of the task owner, the number of elements 
