@@ -487,7 +487,7 @@ struct __data_owner_info_t {
               STR_OUTPORT_DECL ", unsigned char owner);\n";
       }
       
-      if (!UsesIMP) { 
+      if (UsesOmpif || !UsesIMP) { 
         Output
             << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
               "instanceNum, "
@@ -1210,7 +1210,7 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
         Output << "  ap_wait();\n";
         Output << "}\n";
       }
-      else {
+      if (UsesOmpif || !UsesIMP) {
         Output
             << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
               "instanceNum, "
