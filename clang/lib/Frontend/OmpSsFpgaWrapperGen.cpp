@@ -1147,7 +1147,6 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
 
   void GenerateWrapperBottom() {
     if (CreatesTasks) {
-      
       if (UsesIMP) {
         Output
             << "void mcxx_task_create(const ap_uint<64> type, const ap_uint<8> "
@@ -1199,16 +1198,6 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
         Output << "  }\n";
         Output << "}\n";
         Output << "\n"; // blank line
-        Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
-                  ") {\n";
-        Output << "#pragma HLS inline\n";
-        Output << "  ap_wait();\n";
-        Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", " STR_TASKWAIT_CODE
-                                                        ", 1") "\n";
-        Output << "  ap_wait();\n";
-        Output << "  " STR_SPWNINPORT_READ ";\n";
-        Output << "  ap_wait();\n";
-        Output << "}\n";
       }
       if (UsesOmpif || !UsesIMP) {
         Output
@@ -1249,17 +1238,19 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
         Output << "  }\n";
         Output << "}\n";
         Output << "\n"; // blank line
-        Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
-                  ") {\n";
-        Output << "#pragma HLS inline\n";
-        Output << "  ap_wait();\n";
-        Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", " STR_TASKWAIT_CODE
-                                                        ", 1") "\n";
-        Output << "  ap_wait();\n";
-        Output << "  " STR_SPWNINPORT_READ ";\n";
-        Output << "  ap_wait();\n";
-        Output << "}\n";
       }
+
+      //Taskwait
+      Output << "void mcxx_taskwait(" STR_SPWNINPORT_DECL ", " STR_OUTPORT_DECL
+            ") {\n";
+      Output << "#pragma HLS inline\n";
+      Output << "  ap_wait();\n";
+      Output << "  " STR_OUTPORT_WRITE_FUN(STR_TASKID ", " STR_TASKWAIT_CODE
+                                                  ", 1") "\n";
+      Output << "  ap_wait();\n";
+      Output << "  " STR_SPWNINPORT_READ ";\n";
+      Output << "  ap_wait();\n";
+      Output << "}\n";
     }
     if (UsesLock) {
       Output << "void mcxx_set_lock(" STR_INOUTPORT_DECL ") {\n";
