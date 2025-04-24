@@ -71,6 +71,7 @@ class OmpSsFpgaTreeTransformVisitor
   bool CreatesTasks;
   bool instrumented;
   bool IMP;
+  bool DepsWithOwner;
 
   QualType OmpIfRankType;
   IdentifierInfo *OmpIfRankIdentifier;
@@ -303,6 +304,7 @@ public:
         WrapPortMap(WrapperPortMap), DistrMap(DistMap),
         PrintPol(Ctx.getLangOpts()),
         CreatesTasks(CreatesTasks), instrumented(instrumented), IMP(usesIMP) {
+    DepsWithOwner = false;
     OmpIfRankType = Ctx.UnsignedCharTy;
     OmpIfRankIdentifier = &IdentifierTable.get("__ompif_rank");
 
@@ -601,81 +603,73 @@ public:
     return nullptr;
   }
 
-  // Custom comparision operator to sort parameters for IMP
-  struct CompareParmVarDecl {
-    const DataDistMap &dataDistMap;
-    const ParamDependencyMap &paramDepMap;
-    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArg;
-    OmpSsFpgaTreeTransformVisitor &visitor;
-
-    CompareParmVarDecl(const DataDistMap &ddMap, const ParamDependencyMap &depMap,
-                    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap,
-                    OmpSsFpgaTreeTransformVisitor &vis)
-        : dataDistMap(ddMap), paramDepMap(depMap), paramToArg(paramToArgMap), visitor(vis){}
-
-    bool operator()(const ParmVarDecl *a, const ParmVarDecl *b) const {
-        auto dataDistEntryA = dataDistMap.end();
-        Expr *refA = visitor.FindDistributedArrayRef(paramToArg[a]);
-        if (refA) {
-          if (auto *declRef = dyn_cast<DeclRefExpr>(refA)) {
-            dataDistEntryA = dataDistMap.find(declRef->getDecl()->getNameAsString());
-          }
-        }
-
-        auto dataDistEntryB = dataDistMap.end();
-        Expr *refB = visitor.FindDistributedArrayRef(paramToArg[b]);
-        if (refB) {
-          if (auto *declRef = dyn_cast<DeclRefExpr>(refB)) {
-            dataDistEntryB = dataDistMap.find(declRef->getDecl()->getNameAsString());
-          }
-        }
-
-        bool aInDataDist = dataDistEntryA != dataDistMap.end();
-        bool bInDataDist = dataDistEntryB != dataDistMap.end();
-
-        if (aInDataDist != bInDataDist) return aInDataDist;  
-
-        auto getMaxDir = [](const SmallVector<std::pair<const Expr *, LocalmemInfo::Dir>, 20> &vec) {
-            LocalmemInfo::Dir maxDir = LocalmemInfo::Dir::IN;
-            for (const auto &entry : vec) {
-                if (entry.second > maxDir) {
-                    maxDir = entry.second;
-                }
-            }
-            return maxDir;
-        };
-
-        LocalmemInfo::Dir dirA = getMaxDir(paramDepMap.find(a)->second);
-        LocalmemInfo::Dir dirB = getMaxDir(paramDepMap.find(b)->second);
-
-        return dirA > dirB;
-    }
-  };
-
-  std::vector<const ParmVarDecl*> getSortedDependencyKeys(const ParamDependencyMap &paramDepMap, 
-                                llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap,
-                                OmpSsFpgaTreeTransformVisitor &visitor) {
+  // Returns a srted list of <Param, <Expr*, Dir>> pairs
+  std::vector<std::pair<const ParmVarDecl*, std::pair<const Expr*, LocalmemInfo::Dir>>>
+  getSortedParamDeps(
+    const ParamDependencyMap &paramDepMap,
+    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
     
-    std::vector<const ParmVarDecl*> sortedKeys;
-    NumDataOwners = 0;
-    
-    for (const auto &entry : paramDepMap) {
-      sortedKeys.push_back(entry.first);
+    struct Item {
+      const ParmVarDecl* param;
+      const Expr*       expr;
+      LocalmemInfo::Dir dir;
+      bool              priority;
+    };
 
-      // We take advantage of this loop to count the number of total data owners
-      Expr *ref = FindDistributedArrayRef(paramToArgMap[entry.first]);
-      if (ref) {
+    std::vector<Item> items;
+    items.reserve( /* approximate size */ paramDepMap.size() * 4 );
+
+    for (auto const &entry : paramDepMap) {
+      const ParmVarDecl *param = entry.first;
+      bool paramInDD = false;
+
+      if (Expr *ref = FindDistributedArrayRef(paramToArgMap[param])) {
         if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
-          if (DistrMap.count(declRef->getDecl()->getNameAsString())) {
+          paramInDD = DistrMap.count(declRef->getDecl()->getNameAsString());
+          if (paramInDD) {
+            DepsWithOwner = true;
             NumDataOwners += entry.second.size();
           }
         }
       }
-    } 
 
-    std::sort(sortedKeys.begin(), sortedKeys.end(), CompareParmVarDecl(DistrMap, paramDepMap, paramToArgMap, visitor));
-    return sortedKeys;
-  } 
+      for (auto const &dep : entry.second) {
+        const Expr *e = dep.first;
+        LocalmemInfo::Dir d = dep.second;
+
+        bool hasOwner = false;
+        if (!paramInDD) {
+          if (auto *arrSec = dyn_cast<OSSArraySectionExpr>(e)) {
+            if (arrSec->getOwner()) {
+              hasOwner = true;
+              DepsWithOwner = true;
+              ++NumDataOwners;
+            }
+          }
+        }
+
+        bool priority = paramInDD || hasOwner;
+        items.push_back({param, e, d, priority});
+      }
+    }
+
+    // Sort by priority first, then by Dir descending
+    std::stable_sort(items.begin(), items.end(),
+      [](auto const &A, auto const &B){
+        if (A.priority != B.priority)
+          return A.priority > B.priority;   // true > false
+        return A.dir > B.dir;               // INOUT(3) > OUT(2) > IN(1)
+      }
+    );
+
+    std::vector<std::pair<const ParmVarDecl*, std::pair<const Expr*, LocalmemInfo::Dir>>> result;
+    result.reserve(items.size());
+    for (auto const &it : items) {
+      result.emplace_back(it.param, std::make_pair(it.expr, it.dir));
+    }
+    return result;
+  }
+
 
   llvm::SmallVector<Stmt *, 1> createDataOwnerInfo(
       ASTContext &Ctx, VarDecl *ownerDecl, Expr *sizeExpr, int ownerId, 
@@ -1011,17 +1005,13 @@ public:
 
     VarDecl *dataOwnersDecl = nullptr;
     VarDecl *taskOwnerDecl = nullptr;
+    DepsWithOwner = false;
 
     if (IMP) {
-      /*
-        getSortedDependencyKeys returns all parameters sorted so that those 
-        with dependencies on data owner appear first. This sort is stable, 
-        which is important because if not specified the task owner is inferred 
-        based on the data owner of the first INOUT parameter defined by the user.
-      */
-      std::vector<const ParmVarDecl*> sortedParams = getSortedDependencyKeys(dependencyMap, paramToArgMap, *this);
 
-      if (!DistrMap.empty()) {
+      auto sortedDeps = getSortedParamDeps(dependencyMap, paramToArgMap);
+
+      if (DepsWithOwner) {
         auto typeArgs = Ctx.getConstantArrayType(
             getTypeStr("__data_owner_info_t"), llvm::APInt(64, NumDataOwners),
             makeIntegerLiteral(NumDataOwners),
@@ -1104,301 +1094,312 @@ public:
 
       bool task_owner_defined = false;
 
-      for (const ParmVarDecl *param : sortedParams) {
-        auto dependIt = dependencyMap.find(param);
-        if (dependIt != dependencyMap.end()) {
-          needsDeps = true;
-          std::vector<std::pair<const Expr *, LocalmemInfo::Dir>> sortedDeps(dependIt->second.begin(), dependIt->second.end());
+      for (const auto &entry : sortedDeps) {
+        const ParmVarDecl *param = entry.first;
+        const Expr *depExpr = entry.second.first;
+        LocalmemInfo::Dir dir = entry.second.second;
+        needsDeps = true;
 
-          // This stable sort is necessary for the possible inference of the task owner, the number of elements 
-          // is the number of dependencies on the particular array, so it is expected that the cost is not very high.
-          std::stable_sort(sortedDeps.begin(), sortedDeps.end(),
-                    [](const std::pair<const Expr *, LocalmemInfo::Dir> &a, 
-                              const std::pair<const Expr *, LocalmemInfo::Dir> &b) {
-                        return a.second > b.second; // INOUT (3) > OUT (2) > IN (1)
-                    });
+        auto *flagExpression = BinaryOperator::Create(
+              Ctx, makeIntegerLiteral(uint64_t(dir)),
+              makeIntegerLiteral(58ULL), BO_Shl, Ctx.UnsignedIntTy,
+              ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
 
+        auto paramType = param->getType();
+        auto dataType = paramType;
+        if (dataType->isPointerType()) {
+          dataType = dataType->getPointeeType();
+        }
+        auto type = getTypeStr(AllocatedStringRef(
+              "__mcxx_ptr_t<" + typeToString(dataType) + " >"));
 
-          for (const auto &[depExpr, dir] : sortedDeps) {
-            auto *flagExpression = BinaryOperator::Create(
-                  Ctx, makeIntegerLiteral(uint64_t(dir)),
-                  makeIntegerLiteral(58ULL), BO_Shl, Ctx.UnsignedIntTy,
-                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+        auto *ptrVar = makeVarDecl(
+              type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
 
-            auto paramType = param->getType();
-            auto dataType = paramType;
-            if (dataType->isPointerType()) {
-              dataType = dataType->getPointeeType();
-            }
-            auto type = getTypeStr(AllocatedStringRef(
-                  "__mcxx_ptr_t<" + typeToString(dataType) + " >"));
+        stmts.push_back(makeDeclStmt(ptrVar));
 
-            auto *ptrVar = makeVarDecl(
-                  type, AllocatedStringRef("__mcxx_dep_" + std::to_string(depId)));
+        // The following code is the (possible) creation of the operation 
+        // that corresponds to the possible offset of the dependency
+        Expr *finalDependencyExpr = paramToArgMap[param];
 
-            stmts.push_back(makeDeclStmt(ptrVar));
+        if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
+            Expr *dependencyExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
-            // The following code is the (possible) creation of the operation 
-            // that corresponds to the possible offset of the dependency
-            Expr *finalDependencyExpr = paramToArgMap[param];
+            // References to task's arguments should be replaced by the arguments of the call
+            dependencyExpr = ReplaceParamsInExpr(dependencyExpr, paramToArgMap);
+            Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param]);
 
-            if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
-                Expr *dependencyExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-
-                // References to task's arguments should be replaced by the arguments of the call
-                dependencyExpr = ReplaceParamsInExpr(dependencyExpr, paramToArgMap);
-                Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param]);
-
-                finalDependencyExpr = BinaryOperator::Create(
-                    Ctx, wrappedArg, 
-                    dependencyExpr,  
-                    BinaryOperatorKind::BO_Add, type,
-                    ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-            } 
-            
-            stmts.push_back(BinaryOperator::Create(
-                Ctx, makeDeclRefExpr(ptrVar), finalDependencyExpr, BinaryOperatorKind::BO_Assign,
-                type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
-                {}));
-
-            auto *valExpression = BinaryOperator::Create(
-                Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
-                makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+            finalDependencyExpr = BinaryOperator::Create(
+                Ctx, wrappedArg, 
+                dependencyExpr,  
+                BinaryOperatorKind::BO_Add, type,
                 ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-                
-            stmts.push_back(BinaryOperator::Create(
-              Ctx,
-              new (Ctx) ArraySubscriptExpr(
-                  makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
-                  QualType(depsDecl->getType()->getPointeeOrArrayElementType(), 0),
-                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-                valExpression,
-                BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
-                ExprObjectKind::OK_Ordinary, {}, {}));
+        } 
+        
+        stmts.push_back(BinaryOperator::Create(
+            Ctx, makeDeclRefExpr(ptrVar), finalDependencyExpr, BinaryOperatorKind::BO_Assign,
+            type, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {},
+            {}));
+
+        auto *valExpression = BinaryOperator::Create(
+            Ctx, makeAccessExpr(makeDeclRefExpr(ptrVar), "val"),
+            makeIntegerLiteral(0xFFFFFFFFFFFFFF), BO_And, Ctx.UnsignedIntTy,
+            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
             
-            stmts.push_back(BinaryOperator::Create(
-              Ctx,
-              new (Ctx) ArraySubscriptExpr(
-                  makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
-                  QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
-                          0),
-                  ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
-                flagExpression,
-                BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
-                ExprObjectKind::OK_Ordinary, {}, {}));
+        stmts.push_back(BinaryOperator::Create(
+          Ctx,
+          new (Ctx) ArraySubscriptExpr(
+              makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+              QualType(depsDecl->getType()->getPointeeOrArrayElementType(), 0),
+              ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+            valExpression,
+            BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
+            ExprObjectKind::OK_Ordinary, {}, {}));
+        
+        stmts.push_back(BinaryOperator::Create(
+          Ctx,
+          new (Ctx) ArraySubscriptExpr(
+              makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
+              QualType(depsDecl->getType()->getPointeeOrArrayElementType(),
+                      0),
+              ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}),
+            flagExpression,
+            BinaryOperatorKind::BO_OrAssign, type, ExprValueKind::VK_LValue,
+            ExprObjectKind::OK_Ordinary, {}, {}));
 
+        // Possible specific task owner
+        if (attr->getOwner() != nullptr && !task_owner_defined) {
+          
+          task_owner_defined = true;
+          QualType typeTaskOwner = Ctx.UnsignedCharTy;
+          taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+          stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
-            // Possible specific task owner
-            if (attr->getOwner() != nullptr && !task_owner_defined) {
-              
-              task_owner_defined = true;
-              QualType typeTaskOwner = Ctx.UnsignedCharTy;
-              taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
-              stmts.push_back(makeDeclStmt(taskOwnerDecl));
+          Expr* ownerExpr = nullptr;
 
-              Expr* ownerExpr = nullptr;
+          if (!isa<StringLiteral>(attr->getOwner())) {
+            ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
+          }
+          else {
+            VarDecl *ompifRankDecl = VarDecl::Create(
+                Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                SourceLocation(), &Ctx.Idents.get("__ompif_rank"),
+                OmpIfRankType, nullptr, SC_None                      
+              );
 
-              if (!isa<StringLiteral>(attr->getOwner())) {
-                ownerExpr = ReplaceParamsInExpr(attr->getOwner(), paramToArgMap);
-              }
-              else {
-                VarDecl *ompifRankDecl = VarDecl::Create(
-                    Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
-                    SourceLocation(), &Ctx.Idents.get("__ompif_rank"),
-                    OmpIfRankType, nullptr, SC_None                      
-                  );
+            ownerExpr = DeclRefExpr::Create(
+                Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                ompifRankDecl, false, SourceLocation(),         
+                ompifRankDecl->getType(), VK_LValue                
+              );
+            
+            DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+            SourceLocation Loc = callExpr->getBeginLoc();
+            const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
+            Diags.Report(Loc, diag::err_oss_fpga_nested_all_owner) << funcName;
+          }
 
-                ownerExpr = DeclRefExpr::Create(
-                    Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
-                    ompifRankDecl, false, SourceLocation(),         
-                    ompifRankDecl->getType(), VK_LValue                
-                  );
-                
-                DiagnosticsEngine &Diags = Ctx.getDiagnostics();
-                SourceLocation Loc = callExpr->getBeginLoc();
-                const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
-                Diags.Report(Loc, diag::err_oss_fpga_nested_all_owner) << funcName;
-              }
+          stmts.push_back(BinaryOperator::Create(
+              Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
+              typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+          ));
+        }
 
+        // Specific code for data owner info
+        if (depId < NumDataOwners) {
+          QualType typeOwner = Ctx.UnsignedCharTy;
+          auto *ownerDecl = makeVarDecl(typeOwner, "data_owner_" + std::to_string(depId));
+          stmts.push_back(makeDeclStmt(ownerDecl));
+
+          llvm::SmallVector<Expr *, 4> ownerArgs;
+          if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
+            
+            // The function that infers the data owner based on the distribution 
+            // has three arguments: array size, number of nodes and offset.
+
+            /*
+              Size argument: To get the size, we must look at the map of distributed arrays.
+              The argument can be either directly a reference to the distributed array or a 
+              reference + an offset. What is done is to extract the reference by recursively 
+              traversing the expression, so that the offset is directly argument - reference. 
+              This trick avoids having to recreate the expression without the reference to obtain the offset.
+            */ 
+
+            Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
+
+            if (arrSectionExpr->getOwner()) {
+              Expr *dataOwner = const_cast<Expr*>(arrSectionExpr->getOwner());
               stmts.push_back(BinaryOperator::Create(
-                  Ctx, makeDeclRefExpr(taskOwnerDecl), ownerExpr, BinaryOperatorKind::BO_Assign,
-                  typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                Ctx, makeDeclRefExpr(ownerDecl), dataOwner, BinaryOperatorKind::BO_Assign,
+                typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
               ));
+
+              Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+              DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
+
+              stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));
+
+              if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
+                task_owner_defined = true;
+                QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                stmts.push_back(BinaryOperator::Create(
+                    Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                    typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                ));
+              }
             }
+            else if (ref) {
+              if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
 
-            // Specific code for data owner info
-            if (depId < NumDataOwners) {
-              QualType typeOwner = Ctx.UnsignedCharTy;
-              auto *ownerDecl = makeVarDecl(typeOwner, "data_owner_" + std::to_string(depId));
-              stmts.push_back(makeDeclStmt(ownerDecl));
+                auto dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
 
-              llvm::SmallVector<Expr *, 4> ownerArgs;
-              if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
-                
-                // The function that infers the data owner based on the distribution 
-                // has three arguments: array size, number of nodes and offset.
-
-                /*
-                  Size argument: To get the size, we must look at the map of distributed arrays.
-                  The argument can be either directly a reference to the distributed array or a 
-                  reference + an offset. What is done is to extract the reference by recursively 
-                  traversing the expression, so that the offset is directly argument - reference. 
-                  This trick avoids having to recreate the expression without the reference to obtain the offset.
-                */ 
-
-                Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
-
-                if (ref) {
-                  if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
-
-                    auto dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
-
-                    auto *firstExpr = dataDistEntry->getValue().first;
-                    if (auto *strDist = dyn_cast<StringLiteral>(firstExpr)) {
-                      if (strDist->getString().equals("all")) {
-                        Expr *value255 = makeIntegerLiteral(255);
-                        stmts.push_back(BinaryOperator::Create(
-                            Ctx, makeDeclRefExpr(ownerDecl), value255, BinaryOperatorKind::BO_Assign,
-                            typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                        ));
-                      }
-                      else {
-                        const Expr *sizeExpr = dataDistEntry->getValue().second;
-                        Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
-                        if (!strDist->getString().equals("cyclic")) {
-                          ownerArgs.push_back(sizeExprNonConst);
-                        }
-
-                        // Number of nodes (__ompif_size)
-                        QualType ompifSizeType = Ctx.UnsignedCharTy; 
-                        VarDecl *ompifSizeDecl = VarDecl::Create(
-                            Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
-                            SourceLocation(), &Ctx.Idents.get("__ompif_size"),
-                            ompifSizeType, nullptr, SC_None                      
-                        );
-
-                        Expr *ompifSizeRef = DeclRefExpr::Create(
-                          Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
-                          ompifSizeDecl, false, SourceLocation(),         
-                          ompifSizeDecl->getType(), VK_LValue                
-                        );
-                        ownerArgs.push_back(ompifSizeRef);
-
-                        // Offset
-                        Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-                        offset = ReplaceParamsInExpr(offset, paramToArgMap);
-                        
-                        Expr *argumentOffset = BinaryOperator::Create(
-                            Ctx, paramToArgMap[param], declRef,              
-                            BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
-                            ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-
-                        Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
-
-                        Expr *finalOffset = BinaryOperator::Create(
-                            Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
-                            offset->getType(), ExprValueKind::VK_LValue, 
-                            ExprObjectKind::OK_Ordinary, {}, {});
-
-                        ownerArgs.push_back(finalOffset);
-
-                        Expr *calcOwnerCall = nullptr;
-                        if (strDist->getString().equals("block")) {
-                          calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
-                        }
-                        else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
-
-                        stmts.push_back(BinaryOperator::Create(
-                          Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
-                          BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
-                          ExprObjectKind::OK_Ordinary, {}, {}
-                        ));
-                      }
-                    }
-                    else {
-                      // Size of the array
-                      const Expr *sizeExpr = dataDistEntry->getValue().second;
-                      Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                auto *firstExpr = dataDistEntry->getValue().first;
+                if (auto *strDist = dyn_cast<StringLiteral>(firstExpr)) {
+                  if (strDist->getString().equals("all")) {
+                    Expr *value255 = makeIntegerLiteral(255);
+                    stmts.push_back(BinaryOperator::Create(
+                        Ctx, makeDeclRefExpr(ownerDecl), value255, BinaryOperatorKind::BO_Assign,
+                        typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                    ));
+                  }
+                  else {
+                    const Expr *sizeExpr = dataDistEntry->getValue().second;
+                    Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                    if (!strDist->getString().equals("cyclic")) {
                       ownerArgs.push_back(sizeExprNonConst);
-                      
-                      // Number of nodes (__ompif_size)
-                      QualType ompifSizeType = Ctx.UnsignedCharTy; 
-                      VarDecl *ompifSizeDecl = VarDecl::Create(
-                          Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
-                          SourceLocation(), &Ctx.Idents.get("__ompif_size"),
-                          ompifSizeType, nullptr, SC_None                      
-                      );
-
-                      Expr *ompifSizeRef = DeclRefExpr::Create(
-                          Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
-                          ompifSizeDecl, false, SourceLocation(),         
-                          ompifSizeDecl->getType(), VK_LValue                
-                      );
-                      ownerArgs.push_back(ompifSizeRef);
-
-                      // Offset
-                      Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-                      offset = ReplaceParamsInExpr(offset, paramToArgMap);
-                      
-                      Expr *argumentOffset = BinaryOperator::Create(
-                          Ctx, paramToArgMap[param], declRef,              
-                          BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
-                          ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
-
-                      Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
-
-                      Expr *finalOffset = BinaryOperator::Create(
-                          Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
-                          offset->getType(), ExprValueKind::VK_LValue, 
-                          ExprObjectKind::OK_Ordinary, {}, {});
-
-                      ownerArgs.push_back(finalOffset);
-
-                      ownerArgs.push_back(const_cast<Expr*>(dataDistEntry->getValue().first));
-
-                      
-                      Expr *calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
-                      
-                      stmts.push_back(BinaryOperator::Create(
-                          Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
-                          BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
-                          ExprObjectKind::OK_Ordinary, {}, {}
-                      ));
                     }
 
-                    // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
-                    
-                    // The size expression of the dep can use param references, so we need to replace them
-                    // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
-                    Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
-                    DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
+                    // Number of nodes (__ompif_size)
+                    QualType ompifSizeType = Ctx.UnsignedCharTy; 
+                    VarDecl *ompifSizeDecl = VarDecl::Create(
+                        Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                        SourceLocation(), &Ctx.Idents.get("__ompif_size"),
+                        ompifSizeType, nullptr, SC_None                      
+                    );
 
-                    stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));        
-                    
-                    if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
-                      task_owner_defined = true;
-                      QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                      taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
-                      stmts.push_back(makeDeclStmt(taskOwnerDecl));
+                    Expr *ompifSizeRef = DeclRefExpr::Create(
+                      Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                      ompifSizeDecl, false, SourceLocation(),         
+                      ompifSizeDecl->getType(), VK_LValue                
+                    );
+                    ownerArgs.push_back(ompifSizeRef);
 
-                      stmts.push_back(BinaryOperator::Create(
-                          Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
-                          typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
-                      ));
+                    // Offset
+                    Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                    offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                    
+                    Expr *argumentOffset = BinaryOperator::Create(
+                        Ctx, paramToArgMap[param], declRef,              
+                        BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                        ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
+                    Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
+
+                    Expr *finalOffset = BinaryOperator::Create(
+                        Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
+                        offset->getType(), ExprValueKind::VK_LValue, 
+                        ExprObjectKind::OK_Ordinary, {}, {});
+
+                    ownerArgs.push_back(finalOffset);
+
+                    Expr *calcOwnerCall = nullptr;
+                    if (strDist->getString().equals("block")) {
+                      calcOwnerCall = makeCallToFunc(CalcOwnerBlockFunc, ownerArgs);
                     }
-                  } 
+                    else calcOwnerCall = makeCallToFunc(CalcOwnerCyclicFunc, ownerArgs);
+
+                    stmts.push_back(BinaryOperator::Create(
+                      Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
+                      BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
+                      ExprObjectKind::OK_Ordinary, {}, {}
+                    ));
+                  }
                 }
                 else {
-                    DiagnosticsEngine &Diags = Ctx.getDiagnostics();
-                    SourceLocation Loc = callExpr->getBeginLoc();
-                    const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
-                    Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist) << funcName;
+                  // Size of the array
+                  const Expr *sizeExpr = dataDistEntry->getValue().second;
+                  Expr *sizeExprNonConst = const_cast<Expr *>(sizeExpr);
+                  ownerArgs.push_back(sizeExprNonConst);
+                  
+                  // Number of nodes (__ompif_size)
+                  QualType ompifSizeType = Ctx.UnsignedCharTy; 
+                  VarDecl *ompifSizeDecl = VarDecl::Create(
+                      Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(),             
+                      SourceLocation(), &Ctx.Idents.get("__ompif_size"),
+                      ompifSizeType, nullptr, SC_None                      
+                  );
+
+                  Expr *ompifSizeRef = DeclRefExpr::Create(
+                      Ctx, NestedNameSpecifierLoc(), SourceLocation(),       
+                      ompifSizeDecl, false, SourceLocation(),         
+                      ompifSizeDecl->getType(), VK_LValue                
+                  );
+                  ownerArgs.push_back(ompifSizeRef);
+
+                  // Offset
+                  Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                  offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                  
+                  Expr *argumentOffset = BinaryOperator::Create(
+                      Ctx, paramToArgMap[param], declRef,              
+                      BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                      ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
+
+                  Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
+
+                  Expr *finalOffset = BinaryOperator::Create(
+                      Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
+                      offset->getType(), ExprValueKind::VK_LValue, 
+                      ExprObjectKind::OK_Ordinary, {}, {});
+
+                  ownerArgs.push_back(finalOffset);
+
+                  ownerArgs.push_back(const_cast<Expr*>(dataDistEntry->getValue().first));
+
+                  
+                  Expr *calcOwnerCall = makeCallToFunc(CalcOwnerBlockCyclicFunc, ownerArgs);
+                  
+                  stmts.push_back(BinaryOperator::Create(
+                      Ctx, makeDeclRefExpr(ownerDecl), calcOwnerCall,
+                      BinaryOperatorKind::BO_Assign, typeOwner, ExprValueKind::VK_LValue,
+                      ExprObjectKind::OK_Ordinary, {}, {}
+                  ));
                 }
-              }
+
+                // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
+                
+                // The size expression of the dep can use param references, so we need to replace them
+                // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
+                Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+                DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
+
+                stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));        
+                
+                if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
+                  task_owner_defined = true;
+                  QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                  taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                  stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                  stmts.push_back(BinaryOperator::Create(
+                      Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                      typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                  ));
+                }
+              } 
             }
-            ++depId;
+            else {
+              DiagnosticsEngine &Diags = Ctx.getDiagnostics();
+              SourceLocation Loc = callExpr->getBeginLoc();
+              const StringRef funcName = dyn_cast<FunctionDecl>(callExpr->getCalleeDecl())->getName();
+              Diags.Report(Loc, diag::err_oss_fpga_missing_owner_or_relevant_datadist) << funcName;
+            }
           }
         }
+        ++depId;
       }
     }
 
@@ -1436,7 +1437,7 @@ public:
 
     if (IMP) {
       arguments.push_back(makeIntegerLiteral(NumDataOwners));
-      if (NumDataOwners > 0) {
+      if (NumDataOwners > 0) {  
         arguments.push_back(makeDeclRefExpr(dataOwnersDecl));
       } else {
         arguments.push_back(makeIntegerLiteral(0));
