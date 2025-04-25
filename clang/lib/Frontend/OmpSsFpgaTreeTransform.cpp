@@ -1156,7 +1156,7 @@ public:
             BinaryOperatorKind::BO_Assign, type, ExprValueKind::VK_LValue,
             ExprObjectKind::OK_Ordinary, {}, {}));
         
-        stmts.push_back(BinaryOperator::Create(
+        stmts.push_back(CompoundAssignOperator::Create(
           Ctx,
           new (Ctx) ArraySubscriptExpr(
               makeDeclRefExpr(depsDecl), makeIntegerLiteral(depId),
