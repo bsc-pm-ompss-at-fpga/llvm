@@ -619,6 +619,8 @@ public:
     std::vector<Item> items;
     items.reserve( /* approximate size */ paramDepMap.size() * 4 );
 
+    NumDataOwners = 0;
+
     for (auto const &entry : paramDepMap) {
       const ParmVarDecl *param = entry.first;
       bool paramInDD = false;
