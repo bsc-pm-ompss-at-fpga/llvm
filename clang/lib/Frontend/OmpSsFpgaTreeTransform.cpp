@@ -1214,7 +1214,11 @@ public:
           stmts.push_back(makeDeclStmt(ownerDecl));
 
           llvm::SmallVector<Expr *, 4> ownerArgs;
-          if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
+
+          auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr);
+          auto *arrShapingExpr = dyn_cast<OSSArrayShapingExpr>(depExpr);
+
+          if (arrSectionExpr || arrShapingExpr) {
             
             // The function that infers the data owner based on the distribution 
             // has three arguments: array size, number of nodes and offset.
@@ -1229,7 +1233,7 @@ public:
 
             Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
 
-            if (arrSectionExpr->getOwner()) {
+            if (arrSectionExpr && arrSectionExpr->getOwner()) {
               Expr *dataOwner = const_cast<Expr*>(arrSectionExpr->getOwner());
               stmts.push_back(BinaryOperator::Create(
                 Ctx, makeDeclRefExpr(ownerDecl), dataOwner, BinaryOperatorKind::BO_Assign,
@@ -1253,7 +1257,7 @@ public:
                 ));
               }
             }
-            else if (ref) {
+            else if (ref)   {
               if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
 
                 auto dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
@@ -1290,7 +1294,10 @@ public:
                     ownerArgs.push_back(ompifSizeRef);
 
                     // Offset
-                    Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                    Expr *offset = nullptr;
+                    if (arrSectionExpr) offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                    else offset = const_cast<Expr *>(arrShapingExpr->getBase());
+
                     offset = ReplaceParamsInExpr(offset, paramToArgMap);
                     
                     Expr *argumentOffset = BinaryOperator::Create(
@@ -1342,7 +1349,9 @@ public:
                   ownerArgs.push_back(ompifSizeRef);
 
                   // Offset
-                  Expr *offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                  Expr *offset = nullptr;
+                  if (arrSectionExpr) offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                  else offset = const_cast<Expr *>(arrShapingExpr->getBase());
                   offset = ReplaceParamsInExpr(offset, paramToArgMap);
                   
                   Expr *argumentOffset = BinaryOperator::Create(
@@ -1375,7 +1384,21 @@ public:
                 
                 // The size expression of the dep can use param references, so we need to replace them
                 // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
-                Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+                Expr *DepSize = nullptr;
+                if (arrSectionExpr) DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+                else {
+                  auto Shapes = arrShapingExpr->getShapes();
+                  if (!Shapes.empty()) {
+                    DepSize = const_cast<Expr *>(Shapes[0]);
+                    for (int i = 1; i < Shapes.size(); ++i) {
+                      DepSize = BinaryOperator::Create(
+                        Ctx, DepSize, const_cast<Expr *>(Shapes[i]), BO_Mul,
+                        DepSize->getType(), VK_LValue, OK_Ordinary, {}, {}
+                      );
+                    }
+                  }
+                }
+                
                 DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
 
                 stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));        
