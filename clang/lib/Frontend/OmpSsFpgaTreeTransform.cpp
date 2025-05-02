@@ -782,9 +782,10 @@ public:
     }
 
     llvm::SmallVector<std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem > copies;
-    if (attr->getDevice() == OSSTaskDeclAttr::Fpga)
+    if (attr->getDevice() == OSSTaskDeclAttr::Fpga) {
       copies =
-          ComputeLocalmems(dyn_cast<FunctionDecl>(callExpr->getCalleeDecl()));
+          ComputeLocalmems(dyn_cast<FunctionDecl>(callExpr->getCalleeDecl()), dependencyMap);
+    }
     else {
       for (auto &&[param, dependencies] : dependencyMap) {
         for (auto &&dependency : dependencies) {
@@ -1082,6 +1083,9 @@ public:
           }
 
           if (dataDistEntry != DistrMap.end() && max_dir == LocalmemInfo::Dir::UNDEF) {
+            if (auto *strDist = dyn_cast<StringLiteral>(dataDistEntry->getValue().first)) {
+              if (strDist->getString().equals("all")) continue; 
+            }
             max_dir = dir;
             param_owner = const_cast<ParmVarDecl *>(decl);
           }
@@ -1832,7 +1836,7 @@ ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,
 }
 
 llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem >
-ComputeLocalmems(FunctionDecl *FD) {
+ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap) {
   auto *taskAttr = FD->getAttr<OSSTaskDeclAttr>();
   ParamDependencyMap currentAssignationsOfArrays;
 
@@ -1843,11 +1847,10 @@ ComputeLocalmems(FunctionDecl *FD) {
 
   // Then compute the list of localmem parameters
   // If copy_deps, get dependency information
-  if (taskAttr->getCopyDeps()) {
-    currentAssignationsOfArrays = computeDependencyMap(taskAttr);
+  if (taskAttr->getCopyDeps() && !depMap.empty()) {
     for (auto *param : FD->parameters()) {
-      if (currentAssignationsOfArrays.find(param) !=
-          currentAssignationsOfArrays.end()) {
+      if (depMap.find(param) !=
+          depMap.end()) {
         parametersToLocalmem.push_back(param);
       }
     }
@@ -1888,6 +1891,7 @@ ComputeLocalmems(FunctionDecl *FD) {
   llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem > localmemList;
   for (auto *param : parametersToLocalmem) {
     auto data = currentAssignationsOfArrays.find(param);
+    if (data == currentAssignationsOfArrays.end() && taskAttr->getCopyDeps()) data = depMap.find(param);
     if (data != currentAssignationsOfArrays.end()) {
       for (const auto &[expr, dir] : data->second) {
          localmemList.push_back({param, LocalmemInfo{-1, dyn_cast<OSSArrayShapingExpr>(expr), dir}});
