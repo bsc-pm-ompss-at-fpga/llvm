@@ -1238,7 +1238,8 @@ public:
             Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
 
             if (arrSectionExpr && arrSectionExpr->getOwner()) {
-              Expr *dataOwner = ReplaceParamsInExpr(arrSectionExpr->getOwner(), paramToArgMap);
+              Expr *dataOwner = const_cast<Expr*>(arrSectionExpr->getOwner());
+              dataOwner = ReplaceParamsInExpr(dataOwner, paramToArgMap);
 
               stmts.push_back(BinaryOperator::Create(
                 Ctx, makeDeclRefExpr(ownerDecl), dataOwner, BinaryOperatorKind::BO_Assign,
@@ -1395,7 +1396,7 @@ public:
                   auto Shapes = arrShapingExpr->getShapes();
                   if (!Shapes.empty()) {
                     DepSize = const_cast<Expr *>(Shapes[0]);
-                    for (int i = 1; i < Shapes.size(); ++i) {
+                    for (size_t i = 1; i < Shapes.size(); ++i) {
                       DepSize = BinaryOperator::Create(
                         Ctx, DepSize, const_cast<Expr *>(Shapes[i]), BO_Mul,
                         DepSize->getType(), VK_LValue, OK_Ordinary, {}, {}
