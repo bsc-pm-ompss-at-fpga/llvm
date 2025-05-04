@@ -1238,7 +1238,8 @@ public:
             Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
 
             if (arrSectionExpr && arrSectionExpr->getOwner()) {
-              Expr *dataOwner = const_cast<Expr*>(arrSectionExpr->getOwner());
+              Expr *dataOwner = ReplaceParamsInExpr(arrSectionExpr->getOwner(), paramToArgMap);
+
               stmts.push_back(BinaryOperator::Create(
                 Ctx, makeDeclRefExpr(ownerDecl), dataOwner, BinaryOperatorKind::BO_Assign,
                 typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
