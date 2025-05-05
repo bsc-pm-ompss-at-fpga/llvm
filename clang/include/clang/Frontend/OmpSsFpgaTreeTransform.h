@@ -65,6 +65,9 @@ using WrapperPortMap =
 using DataDistMap = 
     llvm::StringMap<std::pair<const clang::Expr*, const clang::Expr*>>;
 
+using ParamToArgMap =
+    llvm::StringMap<clang::Expr *>;
+
 
 struct LocalmemInfo {
   int ParamIdx = -1;

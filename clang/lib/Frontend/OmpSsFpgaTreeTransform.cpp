@@ -498,7 +498,7 @@ public:
     return expr;
   }
 
-  Expr *ReplaceParamsInExpr(Expr *expr, llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
+  Expr *ReplaceParamsInExpr(Expr *expr, ParamToArgMap &paramToArgMap) {
     if (!expr) return nullptr;
 
     // We delete implicit castings or unnecessary parentheses before analyzing the expression
@@ -509,7 +509,7 @@ public:
     while (auto *parenExpr = dyn_cast<ParenExpr>(expr)) {
         expr = parenExpr->getSubExpr();
     }
-    
+
     /*
       We consider three possible expressions:
         1. Reference to a parameter
@@ -520,14 +520,13 @@ public:
       and add parentheses whenever necessary to conservatively maintain
       equivalence with the original expression.
     */
-
+    
     // The expression is a reference to a parameter
     if (auto *declRef = dyn_cast<DeclRefExpr>(expr)) {
         if (auto *decl = dyn_cast<ParmVarDecl>(declRef->getDecl())) {
-            auto it = paramToArgMap.find(decl);
+            auto it = paramToArgMap.find(decl->getNameAsString());
             if (it != paramToArgMap.end()) {
                 Expr *replacement = it->second;
-
                 if (!isa<DeclRefExpr>(replacement) && !isa<IntegerLiteral>(replacement) && !isa<ParenExpr>(replacement)) {
                     return new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), replacement);
                 }
@@ -557,7 +556,6 @@ public:
     // The expression is a unary op, so we replace the operand
     if (auto *unaryOp = dyn_cast<UnaryOperator>(expr)) {
         Expr *subExpr = ReplaceParamsInExpr(unaryOp->getSubExpr(), paramToArgMap);
-
         Expr *newExpr = UnaryOperator::Create(Ctx, subExpr ? subExpr : unaryOp->getSubExpr(),
                                               unaryOp->getOpcode(), unaryOp->getType(),
                                               unaryOp->getValueKind(), unaryOp->getObjectKind(), {}, false, {});
@@ -565,12 +563,12 @@ public:
         if (subExpr && !isa<DeclRefExpr>(subExpr) && !isa<IntegerLiteral>(subExpr)) {
             newExpr = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), newExpr);
         }
-
         return newExpr;
     }
 
-    return expr;
+      return expr;
   }
+
 
   Expr *FindDistributedArrayRef(Expr *expr) {
     if (!expr) return nullptr;
@@ -607,7 +605,7 @@ public:
   std::vector<std::pair<const ParmVarDecl*, std::pair<const Expr*, LocalmemInfo::Dir>>>
   getSortedParamDeps(
     const ParamDependencyMap &paramDepMap,
-    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> &paramToArgMap) {
+    ParamToArgMap &paramToArgMap) {
     
     struct Item {
       const ParmVarDecl* param;
@@ -625,7 +623,7 @@ public:
       const ParmVarDecl *param = entry.first;
       bool paramInDD = false;
 
-      if (Expr *ref = FindDistributedArrayRef(paramToArgMap[param])) {
+      if (Expr *ref = FindDistributedArrayRef(paramToArgMap[param->getNameAsString()])) {
         if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
           paramInDD = DistrMap.count(declRef->getDecl()->getNameAsString());
           if (paramInDD) {
@@ -828,7 +826,7 @@ public:
       stmts.push_back(makeDeclStmt(copiesDecl));
     }
 
-    llvm::SmallDenseMap<const ParmVarDecl *, Expr *, 16> paramToArgMap;
+    ParamToArgMap paramToArgMap;
 
     // First forloop to have a param-arg mapping so that it's possible for 
     // references to task arguments to be replaced by call arguments.
@@ -844,7 +842,7 @@ public:
       Expr *arg = *argIt;
       ParmVarDecl *param = *paramIt;
 
-      paramToArgMap[param] = arg;
+      paramToArgMap[param->getNameAsString()] = arg;
     }
 
     int paramId = 0;
@@ -1024,80 +1022,6 @@ public:
         stmts.push_back(makeDeclStmt(dataOwnersDecl));
       }
 
-      // The following two lambda functions are used to infer the task 
-      // owner in case it is not specified
-      auto GetTheArgument = [&](const Expr *OSSExpr) -> const ParmVarDecl * {
-        if (auto *arrShapingExpr = dyn_cast<OSSArrayShapingExpr>(OSSExpr)) {
-          auto *arrExprBase = dyn_cast<DeclRefExpr>(
-              arrShapingExpr->getBase()->IgnoreParenImpCasts());
-          assert(arrExprBase);
-          if (!arrExprBase)
-            return nullptr;
-          auto *decl = dyn_cast<ParmVarDecl>(arrExprBase->getDecl());
-          assert(decl);
-          return decl;
-        }
-        if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(OSSExpr);
-            arrSectionExpr) {
-          auto *arrExprBase = dyn_cast<DeclRefExpr>(
-              arrSectionExpr->getBase()->IgnoreParenImpCasts());
-          assert(arrExprBase);
-          if (!arrExprBase)
-            return nullptr;
-          auto *decl = dyn_cast<ParmVarDecl>(arrExprBase->getDecl());
-          assert(decl);
-          return decl;
-        }
-        if (auto *MultiDepExpr = dyn_cast<OSSMultiDepExpr>(OSSExpr);
-            MultiDepExpr) {
-          auto *arrExprBase = dyn_cast<DeclRefExpr>(
-              MultiDepExpr->getDepExpr()->IgnoreParenImpCasts());
-          if (!arrExprBase)
-            return nullptr;
-          auto *decl = dyn_cast<ParmVarDecl>(arrExprBase->getDecl());
-          return decl;
-        }
-        if (auto *exprDecl = dyn_cast<DeclRefExpr>(OSSExpr->IgnoreParenImpCasts());
-            exprDecl) {
-          return dyn_cast<ParmVarDecl>(exprDecl->getDecl());
-        }
-        return nullptr;
-      };
-  
-      ParmVarDecl *param_owner = nullptr;
-      LocalmemInfo::Dir max_dir = LocalmemInfo::Dir::UNDEF;
-      
-      auto UpdateParamOwner = [&](auto &&DepExprsIter, LocalmemInfo::Dir dir) {
-        for (const Expr *DepExpr : DepExprsIter) {
-          auto *decl = GetTheArgument(DepExpr);
-          if (!decl)
-            continue;
-
-          auto dataDistEntry = DistrMap.end();
-          Expr *ref = FindDistributedArrayRef(paramToArgMap[decl]);
-
-          if (ref) {
-            if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
-              dataDistEntry = DistrMap.find(declRef->getDecl()->getNameAsString());
-            }
-          }
-
-          if (dataDistEntry != DistrMap.end() && max_dir == LocalmemInfo::Dir::UNDEF) {
-            if (auto *strDist = dyn_cast<StringLiteral>(dataDistEntry->getValue().first)) {
-              if (strDist->getString().equals("all")) continue; 
-            }
-            max_dir = dir;
-            param_owner = const_cast<ParmVarDecl *>(decl);
-          }
-        }
-      };
-      
-      if (attr->getOwner() == nullptr) {
-        UpdateParamOwner(attr->inouts(), LocalmemInfo::INOUT);
-        UpdateParamOwner(attr->outs(), LocalmemInfo::OUT);
-        UpdateParamOwner(attr->ins(), LocalmemInfo::IN);
-      }
-
       bool task_owner_defined = false;
 
       for (const auto &entry : sortedDeps) {
@@ -1126,14 +1050,14 @@ public:
 
         // The following code is the (possible) creation of the operation 
         // that corresponds to the possible offset of the dependency
-        Expr *finalDependencyExpr = paramToArgMap[param];
+        Expr *finalDependencyExpr = paramToArgMap[param->getNameAsString()];
 
         if (auto *arrSectionExpr = dyn_cast<OSSArraySectionExpr>(depExpr)) {
             Expr *dependencyExpr = const_cast<Expr *>(arrSectionExpr->getLowerBound());
 
             // References to task's arguments should be replaced by the arguments of the call
             dependencyExpr = ReplaceParamsInExpr(dependencyExpr, paramToArgMap);
-            Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param]);
+            Expr *wrappedArg = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), paramToArgMap[param->getNameAsString()]);
 
             finalDependencyExpr = BinaryOperator::Create(
                 Ctx, wrappedArg, 
@@ -1235,14 +1159,14 @@ public:
               This trick avoids having to recreate the expression without the reference to obtain the offset.
             */ 
 
-            Expr *ref = FindDistributedArrayRef(paramToArgMap[param]);
+            Expr *ref = FindDistributedArrayRef(paramToArgMap[param->getNameAsString()]);
 
             if (arrSectionExpr && arrSectionExpr->getOwner()) {
               Expr *dataOwner = const_cast<Expr*>(arrSectionExpr->getOwner());
-              dataOwner = ReplaceParamsInExpr(dataOwner, paramToArgMap);
+              Expr *newDataOwner = ReplaceParamsInExpr(dataOwner, paramToArgMap);
 
               stmts.push_back(BinaryOperator::Create(
-                Ctx, makeDeclRefExpr(ownerDecl), dataOwner, BinaryOperatorKind::BO_Assign,
+                Ctx, makeDeclRefExpr(ownerDecl), newDataOwner, BinaryOperatorKind::BO_Assign,
                 typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
               ));
 
@@ -1251,7 +1175,7 @@ public:
 
               stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));
 
-              if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
+              if (attr->getOwner() == nullptr && !task_owner_defined) {
                 task_owner_defined = true;
                 QualType typeTaskOwner = Ctx.UnsignedCharTy;
                 taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
@@ -1307,8 +1231,8 @@ public:
                     offset = ReplaceParamsInExpr(offset, paramToArgMap);
                     
                     Expr *argumentOffset = BinaryOperator::Create(
-                        Ctx, paramToArgMap[param], declRef,              
-                        BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                        Ctx, paramToArgMap[param->getNameAsString()], declRef,              
+                        BinaryOperatorKind::BO_Sub, paramToArgMap[param->getNameAsString()]->getType(), 
                         ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
 
                     Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
@@ -1361,8 +1285,8 @@ public:
                   offset = ReplaceParamsInExpr(offset, paramToArgMap);
                   
                   Expr *argumentOffset = BinaryOperator::Create(
-                      Ctx, paramToArgMap[param], declRef,              
-                      BinaryOperatorKind::BO_Sub, paramToArgMap[param]->getType(), 
+                      Ctx, paramToArgMap[param->getNameAsString()], declRef,              
+                      BinaryOperatorKind::BO_Sub, paramToArgMap[param->getNameAsString()]->getType(), 
                       ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {});
 
                   Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
@@ -1409,7 +1333,7 @@ public:
 
                 stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));        
                 
-                if (attr->getOwner() == nullptr && param->getName() == param_owner->getName() && !task_owner_defined) {
+                if (attr->getOwner() == nullptr && !task_owner_defined) {
                   task_owner_defined = true;
                   QualType typeTaskOwner = Ctx.UnsignedCharTy;
                   taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
