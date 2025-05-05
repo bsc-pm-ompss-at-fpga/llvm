@@ -2977,10 +2977,10 @@ public:
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
-  ExprResult RebuildOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
+  ExprResult RebuildOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes, Expr *Owner,
                                         SourceLocation LBLoc,
                                         SourceLocation RBLoc) {
-    return getSema().ActOnOSSArrayShapingExpr(Base, Shapes, LBLoc, RBLoc);
+    return getSema().ActOnOSSArrayShapingExpr(Base, Shapes, LBLoc, RBLoc, Owner);
   }
 
   /// Build a new multidep expression.
@@ -11999,7 +11999,7 @@ TreeTransform<Derived>::TransformOSSArrayShapingExpr(OSSArrayShapingExpr *E) {
     return E;
 
   return getDerived().RebuildOSSArrayShapingExpr(
-      Base.get(), ShapeList,
+      Base.get(), ShapeList, E->getOwner(),
       E->getBeginLoc(), E->getEndLoc());
 }
 

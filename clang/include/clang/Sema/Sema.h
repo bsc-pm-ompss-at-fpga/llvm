@@ -5794,7 +5794,7 @@ public:
                                       bool ColonForm = true, Expr *Owner = nullptr);
   ExprResult ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
                                       SourceLocation LBLoc,
-                                      SourceLocation RBLoc);
+                                      SourceLocation RBLoc, Expr *Owner = nullptr);
 
   // This struct is for use by ActOnMemberAccess to allow
   // BuildMemberReferenceExpr to be able to reinvoke ActOnMemberAccess after

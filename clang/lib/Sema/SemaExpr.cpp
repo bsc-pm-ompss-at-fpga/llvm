@@ -5481,7 +5481,7 @@ ExprResult Sema::ActOnOSSArraySectionExpr(Expr *Base, SourceLocation LBLoc,
 
 ExprResult Sema::ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
                                           SourceLocation LBLoc,
-                                          SourceLocation RBLoc) {
+                                          SourceLocation RBLoc, Expr* Owner) {
   bool ErrorFound = false;
   if (!AllowShapings) {
     Diag(LBLoc, diag::err_oss_array_shaping_use);
@@ -5497,6 +5497,18 @@ ExprResult Sema::ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
       ErrorFound = true;
     }
   }
+
+  // Handle the owner expression
+  if (Owner && Owner->getType()->isNonOverloadPlaceholderType()) {
+    ExprResult Result = CheckPlaceholderExpr(Owner);
+    if (Result.isInvalid())
+      return ExprError();
+    Result = DefaultLvalueConversion(Result.get());
+    if (Result.isInvalid())
+      return ExprError();
+    Owner = Result.get();
+  }
+  
 
   for (Expr *const &E : Shapes) {
     if (!E) {
@@ -5529,7 +5541,7 @@ ExprResult Sema::ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
   if (IsDependent) {
     return OSSArrayShapingExpr::Create(
       Context, Context.DependentTy,
-      VK_LValue, OK_Ordinary, Base, Shapes, LBLoc, RBLoc);
+      VK_LValue, OK_Ordinary, Base, Shapes, Owner, LBLoc, RBLoc);
   }
 
   if (!Base->getType()->isPointerType()
@@ -5594,7 +5606,7 @@ ExprResult Sema::ActOnOSSArrayShapingExpr(Expr *Base, ArrayRef<Expr *> Shapes,
     return ExprError();
 
   return OSSArrayShapingExpr::Create(Context, Type,
-                                     VK_LValue, OK_Ordinary, Base, NewShapes, LBLoc, RBLoc);
+                                     VK_LValue, OK_Ordinary, Base, NewShapes, Owner, LBLoc, RBLoc);
 }
 
 ExprResult Sema::ActOnOMPArrayShapingExpr(Expr *Base, SourceLocation LParenLoc,

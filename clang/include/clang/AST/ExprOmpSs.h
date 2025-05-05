@@ -164,16 +164,17 @@ class OSSArrayShapingExpr final
 
   size_t numTrailingObjects(OverloadToken<Stmt *>) const {
     // Add an extra one for the base expression.
-    return NumShapes + 1;
+    return NumShapes + 2;
   }
 
-  OSSArrayShapingExpr(QualType Type, Expr *Base, ArrayRef<Expr *> ShapeList,
+  OSSArrayShapingExpr(QualType Type, Expr *Base, ArrayRef<Expr *> ShapeList, Expr *Owner,
                       ExprValueKind VK, ExprObjectKind OK, unsigned N,
                       SourceLocation BeginLoc, SourceLocation EndLoc)
       : Expr( OSSArrayShapingExprClass, Type, VK, OK),
             NumShapes(N), BeginLoc(BeginLoc), EndLoc(EndLoc) {
     setBase(Base);
     setShapes(ShapeList);
+    setOwner(Owner);
     setDependence(computeDependence(this));
   }
 
@@ -189,11 +190,12 @@ public:
                                  ExprObjectKind OK,
                                  Expr *Base,
                                  ArrayRef<Expr *> ShapeList,
+                                 Expr *Owner,
                                  SourceLocation BeginLoc,
                                  SourceLocation EndLoc) {
-    void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(ShapeList.size() + 1));
+    void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(ShapeList.size() + 2)); // shapes + base + owner
     OSSArrayShapingExpr *Clause = new (Mem)
-        OSSArrayShapingExpr(Type, Base, ShapeList, VK, OK, ShapeList.size(), BeginLoc, EndLoc);
+        OSSArrayShapingExpr(Type, Base, ShapeList, Owner, VK, OK, ShapeList.size(), BeginLoc, EndLoc);
     return Clause;
   }
 
@@ -202,6 +204,11 @@ public:
   const Expr *getBase() const { return getTrailingObjects<Expr *>()[0]; }
   /// Set base of the array section.
   void setBase(Expr *E) { getTrailingObjects<Expr *>()[0] = E; }
+
+  Expr *getOwner() { return getTrailingObjects<Expr *>()[NumShapes + 1]; }
+  const Expr *getOwner() const { return getTrailingObjects<Expr *>()[NumShapes + 1]; }
+
+  void setOwner(Expr *E) { getTrailingObjects<Expr *>()[NumShapes + 1] = E; }
 
   /// Get the shape of array shaping.
   MutableArrayRef<Expr *> getShapes() {

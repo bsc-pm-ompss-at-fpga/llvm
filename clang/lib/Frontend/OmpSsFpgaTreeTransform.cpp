@@ -646,6 +646,13 @@ public:
               ++NumDataOwners;
             }
           }
+          else if (auto *arrShap = dyn_cast<OSSArrayShapingExpr>(e)) {
+            if (arrShap->getOwner()) {
+              hasOwner = true;
+              DepsWithOwner = true;
+              ++NumDataOwners;
+            }
+          }
         }
 
         bool priority = paramInDD || hasOwner;
@@ -1171,6 +1178,42 @@ public:
               ));
 
               Expr *DepSize = const_cast<Expr*>(arrSectionExpr->getLengthUpper());
+              DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
+
+              stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));
+
+              if (attr->getOwner() == nullptr && !task_owner_defined) {
+                task_owner_defined = true;
+                QualType typeTaskOwner = Ctx.UnsignedCharTy;
+                taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                stmts.push_back(makeDeclStmt(taskOwnerDecl));
+
+                stmts.push_back(BinaryOperator::Create(
+                    Ctx, makeDeclRefExpr(taskOwnerDecl), makeDeclRefExpr(ownerDecl), BinaryOperatorKind::BO_Assign,
+                    typeTaskOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+                ));
+              }
+            }
+            else if (arrShapingExpr && arrShapingExpr->getOwner()) {
+              Expr *dataOwner = const_cast<Expr*>(arrShapingExpr->getOwner());
+              Expr *newDataOwner = ReplaceParamsInExpr(dataOwner, paramToArgMap);
+
+              stmts.push_back(BinaryOperator::Create(
+                Ctx, makeDeclRefExpr(ownerDecl), newDataOwner, BinaryOperatorKind::BO_Assign,
+                typeOwner, ExprValueKind::VK_LValue, ExprObjectKind::OK_Ordinary, {}, {}
+              ));
+
+              Expr *DepSize = nullptr;
+              auto Shapes = arrShapingExpr->getShapes();
+              if (!Shapes.empty()) {
+                DepSize = const_cast<Expr *>(Shapes[0]);
+                for (size_t i = 1; i < Shapes.size(); ++i) {
+                  DepSize = BinaryOperator::Create(
+                    Ctx, DepSize, const_cast<Expr *>(Shapes[i]), BO_Mul,
+                    DepSize->getType(), VK_LValue, OK_Ordinary, {}, {}
+                  );
+                }
+              }
               DepSize = ReplaceParamsInExpr(DepSize, paramToArgMap);
 
               stmts.append(createDataOwnerInfo(Ctx, ownerDecl, DepSize, depId, dataOwnersDecl, param));

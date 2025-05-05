@@ -4100,8 +4100,13 @@ ExprResult Parser::ParseOSSArrayShaping() {
 
   // Use ParseAssignmentExpression because we want to stop at comma
   ExprResult Base = Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression());
-
   RLoc = Base.isInvalid() ? Tok.getLocation() : Base.get()->getEndLoc();
 
-  return Actions.ActOnOSSArrayShapingExpr(Base.get(), ShapeList, Loc, RLoc);
+  ExprResult Owner;
+  if (Tok.is(tok::semi)) {
+    ConsumeToken();
+    Owner = Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression());
+  }
+    
+  return Actions.ActOnOSSArrayShapingExpr(Base.get(), ShapeList, Loc, RLoc, Owner.get());
 }

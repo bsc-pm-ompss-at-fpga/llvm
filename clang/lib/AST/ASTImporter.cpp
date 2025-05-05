@@ -9288,6 +9288,7 @@ ExpectedStmt ASTNodeImporter::VisitOSSArrayShapingExpr(OSSArrayShapingExpr *E) {
   auto VK = E->getValueKind();
   auto OK = E->getObjectKind();
   auto *base = importChecked(Err, E->getBase());
+  auto Owner = E->getOwner();
 
   auto beginLoc = importChecked(Err, E->getBeginLoc());
   auto endLoc = importChecked(Err, E->getEndLoc());
@@ -9299,7 +9300,7 @@ ExpectedStmt ASTNodeImporter::VisitOSSArrayShapingExpr(OSSArrayShapingExpr *E) {
     return std::move(Err);
   }
   return OSSArrayShapingExpr::Create(Importer.getToContext(), type, VK, OK,
-                                     base, toShapes, beginLoc, endLoc);
+                                     base, toShapes, Owner, beginLoc, endLoc);
 }
 
 ExpectedStmt ASTNodeImporter::VisitOSSMultiDepExpr(OSSMultiDepExpr *E) {
