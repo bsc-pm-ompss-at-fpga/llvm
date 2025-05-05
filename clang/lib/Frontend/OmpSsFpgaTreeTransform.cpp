@@ -611,7 +611,7 @@ public:
       const ParmVarDecl* param;
       const Expr*       expr;
       LocalmemInfo::Dir dir;
-      bool              priority;
+      int              priority;
     };
 
     std::vector<Item> items;
@@ -622,13 +622,18 @@ public:
     for (auto const &entry : paramDepMap) {
       const ParmVarDecl *param = entry.first;
       bool paramInDD = false;
+      bool paramInDDAll = false;
 
       if (Expr *ref = FindDistributedArrayRef(paramToArgMap[param->getNameAsString()])) {
         if (auto *declRef = dyn_cast<DeclRefExpr>(ref)) {
-          paramInDD = DistrMap.count(declRef->getDecl()->getNameAsString());
+          auto it = DistrMap.find(declRef->getDecl()->getNameAsString());
+          paramInDD = it != DistrMap.end();
           if (paramInDD) {
             DepsWithOwner = true;
             NumDataOwners += entry.second.size();
+            if (auto *lit = dyn_cast<StringLiteral>(it->second.first)) {
+              if (lit->getString() == "all") paramInDDAll = true;
+            }
           }
         }
       }
@@ -654,8 +659,11 @@ public:
             }
           }
         }
+        
+        int priority = 0;
+        if (paramInDD) priority = paramInDDAll ? 1 : 2;
+        else if (hasOwner) paramInDD = 2;
 
-        bool priority = paramInDD || hasOwner;
         items.push_back({param, e, d, priority});
       }
     }
