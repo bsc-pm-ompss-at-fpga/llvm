@@ -1472,7 +1472,7 @@ public:
       return false;
     }
 
-    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap);
+    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, UsesIMP);
     visitor.TraverseStmt(ToFD->getBody());
 
     MemcpyWideport = visitor.MemcpyWideport;

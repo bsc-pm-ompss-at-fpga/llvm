@@ -91,6 +91,7 @@ class FPGAFunctionTreeVisitor
   FunctionCallTree *Current;
   WrapperPortMap &wrapperPortMap;
   llvm::SmallSet<CallExpr*, 32> visited;
+  bool UsesIMP;
 
   void propagatePort(WrapperPort port);
 
@@ -101,7 +102,7 @@ public:
   bool UsesLock = false;
 
   FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
-                          WrapperPortMap &wrapperPortMap);
+                          WrapperPortMap &wrapperPortMap, bool IMP);
 
   bool VisitOSSTaskDirective(OSSTaskDirective *);
   bool VisitOSSTaskwaitDirective(OSSTaskwaitDirective *);

@@ -2015,9 +2015,10 @@ void FPGAFunctionTreeVisitor::propagatePort(WrapperPort port) {
 }
 
 FPGAFunctionTreeVisitor::FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
-                                                 WrapperPortMap &wrapperPortMap)
+                                                 WrapperPortMap &wrapperPortMap, bool IMP)
     : Top(startSymbol, nullptr), Current(&Top), wrapperPortMap(wrapperPortMap),
     visited() {
+      UsesIMP = IMP;
 }
 
 bool FPGAFunctionTreeVisitor::VisitOSSTaskDirective(OSSTaskDirective *) {
@@ -2061,24 +2062,26 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
       return true;
   }
 
-  if (auto *funcDecl = dyn_cast<FunctionDecl>(sym)) {
-    if (funcDecl && funcDecl->hasAttr<OSSTaskDeclAttr>()) {
-      auto *attr = funcDecl->getAttr<OSSTaskDeclAttr>();
+  if (UsesIMP) {
+    if (auto *funcDecl = dyn_cast<FunctionDecl>(sym)) {
+      if (funcDecl && funcDecl->hasAttr<OSSTaskDeclAttr>()) {
+        auto *attr = funcDecl->getAttr<OSSTaskDeclAttr>();
 
-      if (attr->getOwner() == nullptr) {
-        CreatesTasks = true;
-        propagatePort(WrapperPort::OMPIF_RANK);
-        propagatePort(WrapperPort::OMPIF_SIZE);
-      }
-      else {
-        if (auto *SL = dyn_cast<StringLiteral>(attr->getOwner()); !SL) {
+        if (attr->getOwner() == nullptr) {
           CreatesTasks = true;
           propagatePort(WrapperPort::OMPIF_RANK);
           propagatePort(WrapperPort::OMPIF_SIZE);
         }
+        else {
+          if (auto *SL = dyn_cast<StringLiteral>(attr->getOwner()); !SL) {
+            CreatesTasks = true;
+            propagatePort(WrapperPort::OMPIF_RANK);
+            propagatePort(WrapperPort::OMPIF_SIZE);
+          }
+        }
       }
     }
-  }
+  } 
 
 
   if (const NamedDecl *symNamed = dyn_cast<NamedDecl>(sym); symNamed) {
