@@ -130,7 +130,7 @@ ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,
                                         bool includeNonArrays = false);
 
 llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem>
-ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap = ParamDependencyMap());
+ComputeLocalmems(FunctionDecl *FD);
 
 QualType DerefOnceTypePointerTo(QualType type);
 QualType GetElementTypePointerTo(QualType type);

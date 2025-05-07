@@ -797,7 +797,7 @@ public:
     llvm::SmallVector<std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem > copies;
     if (attr->getDevice() == OSSTaskDeclAttr::Fpga) {
       copies =
-          ComputeLocalmems(dyn_cast<FunctionDecl>(callExpr->getCalleeDecl()), dependencyMap);
+          ComputeLocalmems(dyn_cast<FunctionDecl>(callExpr->getCalleeDecl()));
     }
     else {
       for (auto &&[param, dependencies] : dependencyMap) {
@@ -1813,7 +1813,7 @@ ParamDependencyMap computeDependencyMap(OSSTaskDeclAttr *taskAttr,
 }
 
 llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem >
-ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap) {
+ComputeLocalmems(FunctionDecl *FD) {
   auto *taskAttr = FD->getAttr<OSSTaskDeclAttr>();
   ParamDependencyMap currentAssignationsOfArrays;
 
@@ -1824,10 +1824,11 @@ ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap) {
 
   // Then compute the list of localmem parameters
   // If copy_deps, get dependency information
-  if (taskAttr->getCopyDeps() && !depMap.empty()) {
+  if (taskAttr->getCopyDeps()) {
+    currentAssignationsOfArrays = computeDependencyMap(taskAttr);
     for (auto *param : FD->parameters()) {
-      if (depMap.find(param) !=
-          depMap.end()) {
+      if (currentAssignationsOfArrays.find(param) !=
+          currentAssignationsOfArrays.end()) {
         parametersToLocalmem.push_back(param);
       }
     }
@@ -1868,7 +1869,6 @@ ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap) {
   llvm::SmallVector< std::pair<const ParmVarDecl *, LocalmemInfo>, MaxLocalmem > localmemList;
   for (auto *param : parametersToLocalmem) {
     auto data = currentAssignationsOfArrays.find(param);
-    if (data == currentAssignationsOfArrays.end() && taskAttr->getCopyDeps()) data = depMap.find(param);
     if (data != currentAssignationsOfArrays.end()) {
       for (const auto &[expr, dir] : data->second) {
          localmemList.push_back({param, LocalmemInfo{-1, dyn_cast<OSSArrayShapingExpr>(expr), dir}});
@@ -1877,6 +1877,7 @@ ComputeLocalmems(FunctionDecl *FD, ParamDependencyMap depMap) {
   }
   return localmemList;
 }
+
 
 QualType DerefOnceTypePointerTo(QualType type) {
   if (type->isPointerType()) {
