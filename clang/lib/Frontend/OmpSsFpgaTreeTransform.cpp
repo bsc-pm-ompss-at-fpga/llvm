@@ -662,7 +662,7 @@ public:
         
         int priority = 0;
         if (paramInDD) priority = paramInDDAll ? 1 : 2;
-        else if (hasOwner) paramInDD = 2;
+        else if (hasOwner) priority = 2;
 
         items.push_back({param, e, d, priority});
       }
