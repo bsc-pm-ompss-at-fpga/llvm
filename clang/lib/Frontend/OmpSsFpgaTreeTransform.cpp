@@ -1335,9 +1335,10 @@ public:
 
                   // Offset
                   Expr *offset = nullptr;
-                  if (arrSectionExpr) offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
-                  else offset = const_cast<Expr *>(arrShapingExpr->getBase());
-                  offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                  if (arrSectionExpr) {
+                    offset = const_cast<Expr *>(arrSectionExpr->getLowerBound());
+                    offset = ReplaceParamsInExpr(offset, paramToArgMap);
+                  }
                   
                   Expr *argumentOffset = BinaryOperator::Create(
                       Ctx, paramToArgMap[param->getNameAsString()], declRef,              
@@ -1346,10 +1347,15 @@ public:
 
                   Expr *wrappedArgOffset = new (Ctx) ParenExpr(SourceLocation(), SourceLocation(), argumentOffset);
 
-                  Expr *finalOffset = BinaryOperator::Create(
+                  Expr *finalOffset = nullptr;
+                  
+                  if (arrSectionExpr) {
+                    finalOffset = BinaryOperator::Create(
                       Ctx, offset, wrappedArgOffset, BinaryOperatorKind::BO_Add, 
                       offset->getType(), ExprValueKind::VK_LValue, 
                       ExprObjectKind::OK_Ordinary, {}, {});
+                  }
+                  else finalOffset = wrappedArgOffset;
 
                   ownerArgs.push_back(finalOffset);
 
