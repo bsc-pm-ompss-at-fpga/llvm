@@ -719,7 +719,7 @@ public:
 
     VarDecl *dataOwnerInfoVarDecl = VarDecl::Create(
         Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(), SourceLocation(),             
-        &Ctx.Idents.get("owner_info_" + std::to_string(ownerId)), 
+        &Ctx.Idents.get("__mcxx_owner_info_" + std::to_string(ownerId)), 
         dataOwnerInfoType, nullptr, SC_None);
 
     stmts.push_back(makeDeclStmt(dataOwnerInfoVarDecl));
@@ -902,7 +902,7 @@ public:
 
         classInstance = makeVarDecl(
             castUnionType,
-            AllocatedStringRef("cast_param_" + std::to_string(paramId)));
+            AllocatedStringRef("__mcxx_cast_param_" + std::to_string(paramId)));
         stmts.push_back(makeDeclStmt(classInstance));
 
         stmts.push_back(BinaryOperator::Create(
@@ -1033,7 +1033,7 @@ public:
             makeIntegerLiteral(NumDataOwners),
             ArrayType::ArraySizeModifier::Normal, 0);
 
-        dataOwnersDecl = makeVarDecl(typeArgs, "data_owners");
+        dataOwnersDecl = makeVarDecl(typeArgs, "__mcxx_data_owners");
         stmts.push_back(makeDeclStmt(dataOwnersDecl));
       }
 
@@ -1117,7 +1117,7 @@ public:
           
           task_owner_defined = true;
           QualType typeTaskOwner = Ctx.UnsignedCharTy;
-          taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+          taskOwnerDecl = makeVarDecl(typeTaskOwner, "__mcxx_task_owner");
           stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
           Expr* ownerExpr = nullptr;
@@ -1153,7 +1153,7 @@ public:
         // Specific code for data owner info
         if (depId < NumDataOwners) {
           QualType typeOwner = Ctx.UnsignedCharTy;
-          auto *ownerDecl = makeVarDecl(typeOwner, "data_owner_" + std::to_string(depId));
+          auto *ownerDecl = makeVarDecl(typeOwner, "__mcxx_data_owner_" + std::to_string(depId));
           stmts.push_back(makeDeclStmt(ownerDecl));
 
           llvm::SmallVector<Expr *, 4> ownerArgs;
@@ -1193,7 +1193,7 @@ public:
               if (attr->getOwner() == nullptr && !task_owner_defined) {
                 task_owner_defined = true;
                 QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                taskOwnerDecl = makeVarDecl(typeTaskOwner, "__mcxx_task_owner");
                 stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
                 stmts.push_back(BinaryOperator::Create(
@@ -1229,7 +1229,7 @@ public:
               if (attr->getOwner() == nullptr && !task_owner_defined) {
                 task_owner_defined = true;
                 QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                taskOwnerDecl = makeVarDecl(typeTaskOwner, "__mcxx_task_owner");
                 stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
                 stmts.push_back(BinaryOperator::Create(
@@ -1371,7 +1371,7 @@ public:
                   ));
                 }
 
-                // Here we create the specific __data_owner_info_t and we assign it to data_owners[depId]
+                // Here we create the specific __data_owner_info_t and we assign it to __mcxx_data_owners[depId]
                 
                 // The size expression of the dep can use param references, so we need to replace them
                 // with the corresponding arguments. We can reuse the ReplaceParamsInExpr function for that.
@@ -1397,7 +1397,7 @@ public:
                 if (attr->getOwner() == nullptr && !task_owner_defined) {
                   task_owner_defined = true;
                   QualType typeTaskOwner = Ctx.UnsignedCharTy;
-                  taskOwnerDecl = makeVarDecl(typeTaskOwner, "task_owner");
+                  taskOwnerDecl = makeVarDecl(typeTaskOwner, "__mcxx_task_owner");
                   stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
                   stmts.push_back(BinaryOperator::Create(
@@ -1465,7 +1465,7 @@ public:
     if (IMP) {
       if (taskOwnerDecl == nullptr) {
 
-        taskOwnerDecl = makeVarDecl(Ctx.UnsignedCharTy  , "task_owner");
+        taskOwnerDecl = makeVarDecl(Ctx.UnsignedCharTy  , "__mcxx_task_owner");
         stmts.push_back(makeDeclStmt(taskOwnerDecl));
 
         VarDecl *ompifRankDecl = VarDecl::Create(
