@@ -65,6 +65,7 @@ class OmpSsFpgaTreeTransformVisitor
   ASTContext &Ctx;
   IdentifierTable &IdTable;
   WrapperPortMap &WrapPortMap;
+  llvm::SmallSet<CallExpr*, 32> &visitedCalls;
   DataDistMap &DistrMap;
   PrintingPolicy PrintPol;
 
@@ -297,11 +298,12 @@ public:
   OmpSsFpgaTreeTransformVisitor(ASTContext &Ctx,
                                 clang::IdentifierTable &IdentifierTable,
                                 ::WrapperPortMap &WrapperPortMap,
+                                llvm::SmallSet<CallExpr*, 32> &visitedCalls,
                                 DataDistMap &DistMap,
                                 uint64_t FpgaPortWidth, bool CreatesTasks,
                                 bool instrumented, bool usesIMP)
       : Inherited(), Ctx(Ctx), IdTable(IdentifierTable),
-        WrapPortMap(WrapperPortMap), DistrMap(DistMap),
+        WrapPortMap(WrapperPortMap), visitedCalls(visitedCalls), DistrMap(DistMap),
         PrintPol(Ctx.getLangOpts()),
         CreatesTasks(CreatesTasks), instrumented(instrumented), IMP(usesIMP) {
     DepsWithOwner = false;
@@ -1510,8 +1512,14 @@ public:
             || callExpr->getCalleeDecl()->isImplicit() ) {
       return true;
     }
+
     if (auto *attr = callExpr->getCalleeDecl()->getAttr<OSSTaskDeclAttr>()) {
       return TaskCall(callExpr, attr);
+    }
+
+    //abort if this call does not need to be processed
+    if (!visitedCalls.contains(callExpr)) {
+        return true;
     }
 
     const StringRef funcName =
@@ -1605,6 +1613,7 @@ public:
     if (funcDecl->hasAttr<OSSTaskDeclAttr>()) {
       return true;
     }
+
     llvm::SmallVector<ParmVarDecl *, 4> NewParamInfo(funcDecl->parameters());
 
     auto addNewParamInfo = [&](auto &&Identifier, auto &&Type) {
@@ -1614,8 +1623,8 @@ public:
       NewParamInfo.push_back(param);
       return param;
     };
-
     auto &wrapperMap = WrapPortMap[funcDecl->getCanonicalDecl()];
+
 
     OmpIfRank = (wrapperMap[(int)WrapperPort::OMPIF_RANK])
                     ? addNewParamInfo(OmpIfRankIdentifier, OmpIfRankType)
@@ -1743,10 +1752,12 @@ namespace clang {
 std::pair<bool, ReplacementMap>
 OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
-                       WrapperPortMap &WrapperPortMap, DataDistMap &DistMap,
-                       uint64_t FpgaPortWidth, bool CreatesTasks, 
+                       WrapperPortMap &WrapperPortMap,
+                       llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                       DataDistMap &DistMap,
+                       uint64_t FpgaPortWidth, bool CreatesTasks,
                        bool instrumented, bool usesIMP) {
-  OmpSsFpgaTreeTransformVisitor t(Ctx, identifierTable, WrapperPortMap, DistMap,
+  OmpSsFpgaTreeTransformVisitor t(Ctx, identifierTable, WrapperPortMap, visitedCalls, DistMap,
                                   FpgaPortWidth, CreatesTasks, instrumented, usesIMP);
   t.TraverseAST(Ctx);
   return {t.getNeedsDeps(), t.takeReplacementMap()};
@@ -2026,9 +2037,11 @@ void FPGAFunctionTreeVisitor::propagatePort(WrapperPort port) {
 }
 
 FPGAFunctionTreeVisitor::FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
-                                                 WrapperPortMap &wrapperPortMap, bool IMP)
+                                                 WrapperPortMap &wrapperPortMap,
+                                                 llvm::SmallSet<CallExpr*, 32> &visited,
+                                                 bool IMP)
     : Top(startSymbol, nullptr), Current(&Top), wrapperPortMap(wrapperPortMap),
-    visited() {
+    visited(visited) {
       UsesIMP = IMP;
 }
 

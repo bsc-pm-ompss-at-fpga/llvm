@@ -282,6 +282,7 @@ template <typename Callable> class WrapperGenerator {
   bool NeedsDeps = false;
   WrapperPortMap WrapPortMap;
   DataDistMap DistMap;
+  llvm::SmallSet<CallExpr*, 32> visitedCalls;
 
   // Use a SmallArray since order is important.
   // This is needed for reproducible builds
@@ -658,7 +659,7 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
     }
 
     auto [needsDeps, replacementMap] =  OmpssFpgaTreeTransform(
-        ToContext, ToIdentifierTable, WrapPortMap, DistMap,
+        ToContext, ToIdentifierTable, WrapPortMap, visitedCalls, DistMap,
         CI.getFrontendOpts().OmpSsFpgaMemoryPortWidth, CreatesTasks,
         CI.getFrontendOpts().OmpSsFpgaInstrumentation, UsesIMP);
     NeedsDeps = needsDeps;
@@ -1436,6 +1437,9 @@ public:
 
   bool GenerateWrapperFile() {
     auto numInstances = getNumInstances();
+    //Clean wrapper map and visited calls for each fpga task
+    WrapPortMap = WrapperPortMap();
+    visitedCalls = llvm::SmallSet<CallExpr*, 32>();
 
     computeDataDistMap();
 
@@ -1472,7 +1476,7 @@ public:
       return false;
     }
 
-    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, UsesIMP);
+    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, visitedCalls, UsesIMP);
     visitor.TraverseStmt(ToFD->getBody());
 
     MemcpyWideport = visitor.MemcpyWideport;

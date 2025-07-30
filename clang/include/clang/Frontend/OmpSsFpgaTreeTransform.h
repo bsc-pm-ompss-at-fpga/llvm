@@ -90,7 +90,7 @@ class FPGAFunctionTreeVisitor
   FunctionCallTree Top;
   FunctionCallTree *Current;
   WrapperPortMap &wrapperPortMap;
-  llvm::SmallSet<CallExpr*, 32> visited;
+  llvm::SmallSet<CallExpr*, 32> &visited;
   bool UsesIMP;
 
   void propagatePort(WrapperPort port);
@@ -102,7 +102,9 @@ public:
   bool UsesLock = false;
 
   FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
-                          WrapperPortMap &wrapperPortMap, bool IMP);
+                          WrapperPortMap &wrapperPortMap,
+                          llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                          bool IMP);
 
   bool VisitOSSTaskDirective(OSSTaskDirective *);
   bool VisitOSSTaskwaitDirective(OSSTaskwaitDirective *);
@@ -114,7 +116,9 @@ public:
 std::pair<bool, ReplacementMap>
 OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
-                       WrapperPortMap &WrapperPortMap, DataDistMap &DistMap,
+                       WrapperPortMap &WrapperPortMap,
+                       llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                       DataDistMap &DistMap,
                        uint64_t FpgaPortWidth,
                        bool CreatesTasks, bool instrumented, bool usesIMP);
 
