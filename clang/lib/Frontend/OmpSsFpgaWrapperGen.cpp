@@ -461,6 +461,20 @@ struct mcxx_inaxis {
 )";
     Output << R"(typedef ap_axiu<64, 1, 1, 2> mcxx_outaxis;
 )";
+    //Emit stubs as we may emit more declarations than strictly needed
+    Output << R"(
+//API stubs
+template<class T>
+void nanos6_fpga_memcpy_wideport_in(T * dst, const unsigned long long int addr, const unsigned int num_elems) {}
+template<class T>
+void nanos6_fpga_memcpy_wideport_out(T * dst, const unsigned long long int addr, const unsigned int num_elems) {}
+void OMPIF_Send(const void *data, unsigned int size, int destination, int tag, int numDeps, const uint64_t deps[]){}
+void OMPIF_Recv(void *data, unsigned int size, int source, int tag, int numDeps, const uint64_t deps[]){}
+void OMPIF_Allgather(void* data, unsigned int size){}
+void OMPIF_Bcast(void* data, unsigned int size, int root){}
+int OMPIF_Comm_rank(){ return 0; }
+int OMPIF_Comm_size(){ return 0; }
+)";
     if (CreatesTasks) {
       Output << R"(
 struct __fpga_copyinfo_t {
