@@ -282,7 +282,7 @@ template <typename Callable> class WrapperGenerator {
   bool NeedsDeps = false;
   WrapperPortMap WrapPortMap;
   DataDistMap DistMap;
-  llvm::SmallSet<CallExpr*, 32> visitedCalls;
+  VisitedCallSet visitedCalls;
 
   // Use a SmallArray since order is important.
   // This is needed for reproducible builds
@@ -1453,7 +1453,7 @@ public:
     auto numInstances = getNumInstances();
     //Clean wrapper map and visited calls for each fpga task
     WrapPortMap = WrapperPortMap();
-    visitedCalls = llvm::SmallSet<CallExpr*, 32>();
+    visitedCalls = VisitedCallSet();
 
     computeDataDistMap();
 

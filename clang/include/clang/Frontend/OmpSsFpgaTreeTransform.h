@@ -68,6 +68,9 @@ using DataDistMap =
 using ParamToArgMap =
     llvm::StringMap<clang::Expr *>;
 
+using VisitedCallSet =
+    llvm::SmallSet<CallExpr*, 32>;
+
 
 struct LocalmemInfo {
   int ParamIdx = -1;
@@ -90,7 +93,7 @@ class FPGAFunctionTreeVisitor
   FunctionCallTree Top;
   FunctionCallTree *Current;
   WrapperPortMap &wrapperPortMap;
-  llvm::SmallSet<CallExpr*, 32> &visited;
+  VisitedCallSet &visited;
   bool UsesIMP;
 
   void propagatePort(WrapperPort port);
@@ -103,7 +106,7 @@ public:
 
   FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
                           WrapperPortMap &wrapperPortMap,
-                          llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                          VisitedCallSet &visitedCalls,
                           bool IMP);
 
   bool VisitOSSTaskDirective(OSSTaskDirective *);
@@ -117,7 +120,7 @@ std::pair<bool, ReplacementMap>
 OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
                        WrapperPortMap &WrapperPortMap,
-                       llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                       VisitedCallSet &visitedCalls,
                        DataDistMap &DistMap,
                        uint64_t FpgaPortWidth,
                        bool CreatesTasks, bool instrumented, bool usesIMP);

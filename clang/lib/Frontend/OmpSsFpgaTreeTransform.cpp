@@ -65,7 +65,7 @@ class OmpSsFpgaTreeTransformVisitor
   ASTContext &Ctx;
   IdentifierTable &IdTable;
   WrapperPortMap &WrapPortMap;
-  llvm::SmallSet<CallExpr*, 32> &visitedCalls;
+  VisitedCallSet &visitedCalls;
   DataDistMap &DistrMap;
   PrintingPolicy PrintPol;
 
@@ -298,7 +298,7 @@ public:
   OmpSsFpgaTreeTransformVisitor(ASTContext &Ctx,
                                 clang::IdentifierTable &IdentifierTable,
                                 ::WrapperPortMap &WrapperPortMap,
-                                llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                                VisitedCallSet &visitedCalls,
                                 DataDistMap &DistMap,
                                 uint64_t FpgaPortWidth, bool CreatesTasks,
                                 bool instrumented, bool usesIMP)
@@ -1753,7 +1753,7 @@ std::pair<bool, ReplacementMap>
 OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
                        WrapperPortMap &WrapperPortMap,
-                       llvm::SmallSet<CallExpr*, 32> &visitedCalls,
+                       VisitedCallSet &visitedCalls,
                        DataDistMap &DistMap,
                        uint64_t FpgaPortWidth, bool CreatesTasks,
                        bool instrumented, bool usesIMP) {
@@ -2038,7 +2038,7 @@ void FPGAFunctionTreeVisitor::propagatePort(WrapperPort port) {
 
 FPGAFunctionTreeVisitor::FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
                                                  WrapperPortMap &wrapperPortMap,
-                                                 llvm::SmallSet<CallExpr*, 32> &visited,
+                                                 VisitedCallSet &visited,
                                                  bool IMP)
     : Top(startSymbol, nullptr), Current(&Top), wrapperPortMap(wrapperPortMap),
     visited(visited) {
