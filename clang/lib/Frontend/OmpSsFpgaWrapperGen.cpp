@@ -283,6 +283,7 @@ template <typename Callable> class WrapperGenerator {
   WrapperPortMap WrapPortMap;
   DataDistMap DistMap;
   VisitedCallSet visitedCalls;
+  VisitedDeclSet visitedDecls;
 
   // Use a SmallArray since order is important.
   // This is needed for reproducible builds
@@ -673,7 +674,8 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
     }
 
     auto [needsDeps, replacementMap] =  OmpssFpgaTreeTransform(
-        ToContext, ToIdentifierTable, WrapPortMap, visitedCalls, DistMap,
+        ToContext, ToIdentifierTable, WrapPortMap, visitedCalls, visitedDecls,
+        DistMap,
         CI.getFrontendOpts().OmpSsFpgaMemoryPortWidth, CreatesTasks,
         CI.getFrontendOpts().OmpSsFpgaInstrumentation, UsesIMP);
     NeedsDeps = needsDeps;
@@ -687,9 +689,10 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
 
       if (llvm::isa<FunctionDecl>(otherDecl)) {
         auto *FuncDecl = cast<FunctionDecl>(otherDecl);
-        if (FuncDecl->hasAttr<OSSTaskDeclAttr>()) { // Don't print tasks, as now
-                                                    // they are not needed in
-                                                    // the wrapper
+        if (!visitedDecls.contains(otherDecl) || // Don't emit unneeded functions
+          FuncDecl->hasAttr<OSSTaskDeclAttr>()) { // Don't print tasks, as now
+                                                  // they are not needed in
+                                                  // the wrapper
           continue;
         }
       }
@@ -1454,6 +1457,7 @@ public:
     //Clean wrapper map and visited calls for each fpga task
     WrapPortMap = WrapperPortMap();
     visitedCalls = VisitedCallSet();
+    visitedDecls = VisitedDeclSet();
 
     computeDataDistMap();
 
@@ -1490,7 +1494,10 @@ public:
       return false;
     }
 
-    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, visitedCalls, UsesIMP);
+    //We want to emit the FPGA task
+    visitedDecls.insert(ToFD);
+
+    FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, visitedCalls, visitedDecls, UsesIMP);
     visitor.TraverseStmt(ToFD->getBody());
 
     MemcpyWideport = visitor.MemcpyWideport;

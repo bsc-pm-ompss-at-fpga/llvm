@@ -66,6 +66,7 @@ class OmpSsFpgaTreeTransformVisitor
   IdentifierTable &IdTable;
   WrapperPortMap &WrapPortMap;
   VisitedCallSet &visitedCalls;
+  VisitedDeclSet &visitedDecls;
   DataDistMap &DistrMap;
   PrintingPolicy PrintPol;
 
@@ -299,11 +300,13 @@ public:
                                 clang::IdentifierTable &IdentifierTable,
                                 ::WrapperPortMap &WrapperPortMap,
                                 VisitedCallSet &visitedCalls,
+                                VisitedDeclSet &visitedDecls,
                                 DataDistMap &DistMap,
                                 uint64_t FpgaPortWidth, bool CreatesTasks,
                                 bool instrumented, bool usesIMP)
       : Inherited(), Ctx(Ctx), IdTable(IdentifierTable),
-        WrapPortMap(WrapperPortMap), visitedCalls(visitedCalls), DistrMap(DistMap),
+        WrapPortMap(WrapperPortMap), visitedCalls(visitedCalls),
+        visitedDecls(visitedDecls), DistrMap(DistMap),
         PrintPol(Ctx.getLangOpts()),
         CreatesTasks(CreatesTasks), instrumented(instrumented), IMP(usesIMP) {
     DepsWithOwner = false;
@@ -1754,11 +1757,12 @@ OmpssFpgaTreeTransform(clang::ASTContext &Ctx,
                        clang::IdentifierTable &identifierTable,
                        WrapperPortMap &WrapperPortMap,
                        VisitedCallSet &visitedCalls,
+                       VisitedDeclSet &visitedDecls,
                        DataDistMap &DistMap,
                        uint64_t FpgaPortWidth, bool CreatesTasks,
                        bool instrumented, bool usesIMP) {
-  OmpSsFpgaTreeTransformVisitor t(Ctx, identifierTable, WrapperPortMap, visitedCalls, DistMap,
-                                  FpgaPortWidth, CreatesTasks, instrumented, usesIMP);
+  OmpSsFpgaTreeTransformVisitor t(Ctx, identifierTable, WrapperPortMap, visitedCalls, visitedDecls,
+                                  DistMap, FpgaPortWidth, CreatesTasks, instrumented, usesIMP);
   t.TraverseAST(Ctx);
   return {t.getNeedsDeps(), t.takeReplacementMap()};
 }
@@ -2039,9 +2043,10 @@ void FPGAFunctionTreeVisitor::propagatePort(WrapperPort port) {
 FPGAFunctionTreeVisitor::FPGAFunctionTreeVisitor(FunctionDecl *startSymbol,
                                                  WrapperPortMap &wrapperPortMap,
                                                  VisitedCallSet &visited,
+                                                 VisitedDeclSet &visitedDecls,
                                                  bool IMP)
     : Top(startSymbol, nullptr), Current(&Top), wrapperPortMap(wrapperPortMap),
-    visited(visited) {
+    visited(visited), visitedDecls(visitedDecls) {
       UsesIMP = IMP;
 }
 
@@ -2085,6 +2090,7 @@ bool FPGAFunctionTreeVisitor::VisitCallExpr(CallExpr *n) {
   if (!visited.insert(n).second) {
       return true;
   }
+  visitedDecls.insert(sym);
 
   if (UsesIMP) {
     if (auto *funcDecl = dyn_cast<FunctionDecl>(sym)) {
