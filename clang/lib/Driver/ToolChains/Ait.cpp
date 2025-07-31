@@ -74,7 +74,7 @@ std::vector<std::string> splitParams(std::string_view input) {
 }
 
 std::string MergeJsonParts(const FPGAAitJobAction &AitJA) {
-  std::string outJsonFileStr("[\n");
+  std::string outJsonFileStr("{\n");
   llvm::raw_string_ostream outJsonFile(outJsonFileStr);
   for (auto *InputJob : AitJA.getInputs()) {
     auto *WrappeGenInput = dyn_cast<FPGAWrapperGenJobAction>(InputJob);
@@ -93,7 +93,7 @@ std::string MergeJsonParts(const FPGAAitJobAction &AitJA) {
   }
   outJsonFileStr.pop_back(); // remove \n
   outJsonFileStr.pop_back(); // remove ,
-  outJsonFileStr.append("\n]\n");
+  outJsonFileStr.append("\n}\n");
   return outJsonFileStr;
 }
 

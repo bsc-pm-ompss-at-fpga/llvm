@@ -1505,24 +1505,24 @@ public:
 
   void AddPartJson(llvm::raw_ostream &OutputJson, StringRef generatedPathFile,
                    StringRef generatedFile) {
-    OutputJson << "{\n";
-    OutputJson << "    \"full_path\" : \"" << generatedPathFile << "\",\n";
-    OutputJson << "    \"filename\" : \"" << generatedFile << "\",\n";
-    OutputJson << "    \"name\" : \"" << OrigFuncName << "\",\n";
-    OutputJson << "    \"type\" : " << HashNum << ",\n";
-    OutputJson << "    \"num_instances\" : " << NumInstances << ",\n";
-    OutputJson << "    \"task_creation\" : "
+    OutputJson << "    \"" << OrigFuncName << "\": {\n";
+    OutputJson << "        \"full_path\" : \"" << generatedPathFile << "\",\n";
+    OutputJson << "        \"filename\" : \"" << generatedFile << "\",\n";
+    OutputJson << "        \"name\" : \"" << OrigFuncName << "\",\n";
+    OutputJson << "        \"type\" : " << HashNum << ",\n";
+    OutputJson << "        \"num_instances\" : " << NumInstances << ",\n";
+    OutputJson << "        \"task_creation\" : "
                << (CreatesTasks ? "true" : "false") << ",\n";
-    OutputJson << "    \"instrumentation\" : "
+    OutputJson << "        \"instrumentation\" : "
                << (CI.getFrontendOpts().OmpSsFpgaInstrumentation ? "true"
                                                                  : "false")
                << ",\n";
-    OutputJson << "    \"periodic\" : false,\n";
-    OutputJson << "    \"lock\" : " << (UsesLock ? "true" : "false") << ",\n";
-    OutputJson << "    \"deps\" : " << (NeedsDeps ? "true" : "false") << ",\n";
-    OutputJson << "    \"ompif\" : " << ((UsesOmpif | UsesIMP) ? "true" : "false") << ",\n";
-    OutputJson << "    \"imp\" : " << (UsesIMP ? "true" : "false") << "\n";
-    OutputJson << "},\n";
+    OutputJson << "        \"periodic\" : false,\n";
+    OutputJson << "        \"lock\" : " << (UsesLock ? "true" : "false") << ",\n";
+    OutputJson << "        \"deps\" : " << (NeedsDeps ? "true" : "false") << ",\n";
+    OutputJson << "        \"ompif\" : " << ((UsesOmpif | UsesIMP) ? "true" : "false") << ",\n";
+    OutputJson << "        \"imp\" : " << (UsesIMP ? "true" : "false") << "\n";
+    OutputJson << "    },\n";
   }
 };
 } // namespace
