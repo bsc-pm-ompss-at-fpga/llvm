@@ -1481,7 +1481,8 @@ public:
     }
 
     //We want to emit the FPGA task
-    visitedDecls.insert(ToFD);
+    //Definition should be available for the FPGA task
+    visitedDecls.insert(ToFD->getDefinition());
 
     FPGAFunctionTreeVisitor visitor(ToFD, WrapPortMap, visitedCalls, visitedDecls, UsesIMP);
     visitor.TraverseStmt(ToFD->getBody());
