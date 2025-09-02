@@ -573,13 +573,12 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
 
       Output << "void OMPIF_Send(const void *data, unsigned int size, "
                 "int destination, unsigned char tag, "
-                "const ap_uint<8> numDeps, const unsigned long "
-                "long int deps[], " STR_OUTPORT_DECL ");\n";
+                "const ap_uint<8> numDeps, "
+                "const uint64_t deps[], " STR_OUTPORT_DECL ");\n";
       Output
           << "void OMPIF_Recv(void *data, unsigned int size,"
              " int source, unsigned char tag, const "
-             "ap_uint<8> numDeps, const unsigned long long int "
-             "deps[], " STR_OUTPORT_DECL ");\n";
+             "ap_uint<8> numDeps, const uint64_t deps[], " STR_OUTPORT_DECL ");\n";
       Output << "void OMPIF_Allgather(void* data, unsigned int size, "
                 "unsigned char ompif_rank, " STR_SPWNINOUTPORT_DECL ");\n";
       Output << "void OMPIF_Bcast(void* data, unsigned int size, int root, "
@@ -1279,8 +1278,8 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
     if (UsesOmpif) {
       Output << "void OMPIF_Send(const void *data, unsigned int size, "
                 "int destination, unsigned char tag, "
-                "const ap_uint<8> numDeps, const unsigned long "
-                "long int deps[], " STR_OUTPORT_DECL ") {\n";
+                "const ap_uint<8> numDeps, "
+                "const uint64_t deps[], " STR_OUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command;\n";
       Output << "  command(7,0) = 0;\n";
@@ -1291,13 +1290,13 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
           << "  unsigned long long int args[2] = {command, (unsigned long long "
              "int)size};\n";
       Output << "  " STR_TASK_CREATE_FUN(
-          "4294967299LU, 0xFF, 2, args, numDeps, deps, 0, 0") "\n";
+          "4294967299LU, 0xFF, 2, args, numDeps, (unsigned long long int*)deps, 0, 0") "\n";
       Output << "}\n";
       Output
           << "void OMPIF_Recv(void *data, unsigned int size, "
              "int source, unsigned char tag, const "
-             "ap_uint<8> numDeps, const unsigned long long int "
-             "deps[], " STR_OUTPORT_DECL ") {\n";
+             "ap_uint<8> numDeps, const uint64_t deps[], "
+             STR_OUTPORT_DECL ") {\n";
       Output << "#pragma HLS inline\n";
       Output << "  ap_uint<64> command;\n";
       Output << "  command(7,0) = 0;\n";
@@ -1308,7 +1307,7 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
           << "unsigned long long int args[2] = {command, (unsigned long long "
              "int)size};\n";
       Output << "  " STR_TASK_CREATE_FUN(
-          "4294967300LU, 0xFF, 2, args, numDeps, deps, 0, 0") "\n";
+          "4294967300LU, 0xFF, 2, args, numDeps, (unsigned long long int*)deps, 0, 0") "\n";
       Output << "}\n";
       Output
           << "void OMPIF_Allgather(void *data, unsigned int size, "
