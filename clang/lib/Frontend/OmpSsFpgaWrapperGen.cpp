@@ -508,6 +508,7 @@ struct __mcxx_ptr_t {
   unsigned long long int val;
   __mcxx_ptr_t(T *ptr, unsigned long long int val) : ptr(ptr), val(val) {}
   __mcxx_ptr_t() {}
+  __mcxx_ptr_t(T *ptr) : ptr(ptr) {}
   inline operator __mcxx_ptr_t<const T>() const {
     return __mcxx_ptr_t<const T>(ptr, val);
   }
@@ -527,6 +528,7 @@ struct __mcxx_ptr_t {
   }
   template <typename V> inline operator V() const { return (V)val; }
   T& operator[](long long int i) { return ptr[val/sizeof(T)+i]; }
+  T& operator* () { return *ptr; }
 };
 )";
     }
