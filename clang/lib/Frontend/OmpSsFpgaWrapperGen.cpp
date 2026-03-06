@@ -508,7 +508,7 @@ struct __mcxx_ptr_t {
   unsigned long long int val;
   __mcxx_ptr_t(T *ptr, unsigned long long int val) : ptr(ptr), val(val) {}
   __mcxx_ptr_t() {}
-  __mcxx_ptr_t(T *ptr) : ptr(ptr) {}
+  __mcxx_ptr_t(T *ptr) : ptr(ptr), val(0) {}
   inline operator __mcxx_ptr_t<const T>() const {
     return __mcxx_ptr_t<const T>(ptr, val);
   }
