@@ -2197,6 +2197,7 @@ Error ASTNodeImporter::ImportInitializer(VarDecl *From, VarDecl *To) {
     return ToInitOrErr.takeError();
 
   To->setInit(*ToInitOrErr);
+  To->setInitStyle(From->getInitStyle());
   if (EvaluatedStmt *FromEval = From->getEvaluatedStmt()) {
     EvaluatedStmt *ToEval = To->ensureEvaluatedStmt();
     ToEval->HasConstantInitialization = FromEval->HasConstantInitialization;
