@@ -1612,6 +1612,9 @@ public:
     return Inherited::TraverseFunctionDecl(D);
   }
 
+  //Traverse template instantiations to process all their function declarations
+  bool shouldVisitTemplateInstantiations() const { return true; }
+
   bool VisitFunctionDecl(FunctionDecl *funcDecl) {
     if (funcDecl->hasAttr<OSSTaskDeclAttr>()) {
       return true;
