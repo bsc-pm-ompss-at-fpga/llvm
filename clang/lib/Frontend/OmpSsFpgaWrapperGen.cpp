@@ -683,6 +683,22 @@ unsigned char calc_data_owner_block_cyclic(unsigned int size, unsigned char n_no
           continue;
         }
       }
+      //If it is a function template, we need to check if any instantiation
+      //was used by the current task
+      if (llvm::isa<FunctionTemplateDecl>(otherDecl)) {
+          auto *FunTemplDecl = cast<FunctionTemplateDecl>(otherDecl);
+          bool used = false;
+          for (auto *SD : FunTemplDecl->specializations()) {
+              for (auto *RD : SD->redecls()) {
+                  if (visitedDecls.contains(RD)) {
+                      used = true;
+                  }
+              }
+          }
+          if (!used)
+              //skip unused templates
+              continue;
+      }
       otherDecl->print(Output, printPol, 0, true);
       if (!OutputStr.empty() && OutputStr[OutputStr.size() - 1] != '\n') {
         Output << ";\n"; // This may lead to superfluous ';', but I'm not
